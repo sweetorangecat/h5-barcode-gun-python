@@ -143,7 +143,7 @@ class PCClientWorker(QObject):
     connection_changed = pyqtSignal(bool)
     log_message = pyqtSignal(str, str)
 
-    def __init__(self, server_ip='localhost', port=5000):
+    def __init__(self, server_ip='localhost', port=7788):
         super().__init__()
         self.server_ip = server_ip
         self.port = port
@@ -255,6 +255,7 @@ class PCClientWindow(QMainWindow):
         self.init_server_thread()
         self.init_client_worker()
         self.init_tray_icon()
+        self.barcode = None
 
         # 初始化状态
         self.server_running = False
@@ -548,7 +549,8 @@ class PCClientWindow(QMainWindow):
     @pyqtSlot(str)
     def on_qr_detected(self, barcode):
         """接收到二维码"""
-        self.lbl_last_barcode.setText(barcode)
+        if barcode is not None:
+            self.lbl_last_barcode.setText(barcode)
 
     def on_tray_icon_activated(self, reason):
         """托盘图标点击"""
