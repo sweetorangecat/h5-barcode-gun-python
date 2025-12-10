@@ -82,11 +82,11 @@ class BarcodeGunServer:
             """获取服务器状态"""
             return jsonify(self.get_server_info())
 
-        @self.app.route('/api/qrcode')
-        def get_qrcode():
-            """生成手机端访问二维码"""
-            local_ip = self.get_local_ip()
-            mobile_url = f"http://{local_ip}:{self.port}"
+        # @self.app.route('/api/qrcode')
+        # def get_qrcode():
+        #     """生成手机端访问二维码"""
+        #     local_ip = self.get_local_ip()
+        #     mobile_url = f"http://{local_ip}:{self.port}"
 
             # 生成二维码
             qr = qrcode.QRCode(

@@ -4,7 +4,9 @@
       "Bash(chmod +x package_macos.sh)",
       "Bash(chmod +x package_linux.sh)",
       "Bash(python:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(dir \"D:\\工作\\h5-barcode-gun-master\\h5-barcode-gun-pc\\src\\main\\resources\\static\":*)"
     ],
     "deny": [],
     "ask": []

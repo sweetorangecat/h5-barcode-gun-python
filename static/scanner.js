@@ -1,4 +1,5 @@
-// H5 扫码枪 - 手机端逻辑
+// H5 扫码枪 - 参考项目风格 + 自定义UI
+// 使用 Html5Qrcode（非Html5QrcodeScanner）+ 本地html5-qrcode.min.js
 
 class BarcodeScanner {
     constructor() {
@@ -22,14 +23,10 @@ class BarcodeScanner {
             scannerInfo: document.getElementById('scannerInfo')
         };
 
-        // 配置
+        // 配置（参考项目风格）
         this.config = {
-            qrbox: {
-                width: 250,
-                height: 250
-            },
             fps: 10,
-            aspectRatio: 1.0,
+            qrbox: this.calculateQrBox(),  // 自适应扫描框
             formats: [
                 Html5QrcodeSupportedFormats.QR_CODE,
                 Html5QrcodeSupportedFormats.CODE_128,
@@ -48,35 +45,28 @@ class BarcodeScanner {
     init() {
         this.initSocket();
         this.initScanner();
-        this.bindEvents();
-        this.checkEnvironment();
+    }
+
+    // 自适应扫描框大小（参考项目风格）
+    calculateQrBox() {
+        const containerWidth = window.innerWidth - 40;
+        const containerHeight = window.innerHeight * 0.6;
+        const minSize = Math.min(containerWidth, containerHeight, 400);
+        return { width: minSize * 0.7, height: minSize * 0.7 };
     }
 
     // 初始化 Socket.IO 连接
     initSocket() {
-        // 连接到服务器
         this.socket = io({
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-            timeout: 20000
+            transports: ['websocket', 'polling']
         });
 
-        // 连接事件
         this.socket.on('connect', () => {
             console.log('已连接到服务器');
             this.isConnected = true;
             this.updateConnectionStatus(true);
-            this.showNotification('已连接到服务器', 'success');
 
-            // 发送客户端信息
-            this.socket.emit('client_info', {
-                type: 'mobile',
-                timestamp: Date.now()
-            });
-
-            // 请求PC客户端状态
+            this.socket.emit('client_info', { type: 'mobile' });
             this.socket.emit('request_pc_status');
         });
 
@@ -84,24 +74,17 @@ class BarcodeScanner {
             console.log('与服务器断开连接');
             this.isConnected = false;
             this.updateConnectionStatus(false);
-            this.showNotification('与服务器断开连接', 'warning');
             this.updatePCStatus(false);
+
+            // 停止扫描
+            if (this.isScanning) {
+                this.stopScanning();
+            }
         });
 
-        this.socket.on('connect_error', (error) => {
-            console.error('连接错误:', error);
-            this.showNotification('连接服务器失败', 'error');
-        });
-
-        // PC客户端状态更新
         this.socket.on('pc_status', (data) => {
             this.pcConnected = data.connected;
             this.updatePCStatus(data.connected, data.count || 0);
-        });
-
-        // 服务器响应
-        this.socket.on('mobile_connected', (data) => {
-            console.log('手机端已连接:', data);
         });
 
         this.socket.on('scan_success', (data) => {
@@ -109,17 +92,6 @@ class BarcodeScanner {
             this.showNotification(`已发送到 ${data.sent_to_pc} 台PC`, 'success');
         });
 
-        this.socket.on('scan_error', (data) => {
-            console.error('扫描错误:', data);
-            this.showNotification(data.message || '发送失败', 'error');
-        });
-
-        // 心跳响应
-        this.socket.on('pong', (data) => {
-            console.log('收到心跳响应:', data);
-        });
-
-        // 定期发送心跳
         setInterval(() => {
             if (this.isConnected) {
                 this.socket.emit('ping');
@@ -130,14 +102,12 @@ class BarcodeScanner {
     // 初始化扫描器
     async initScanner() {
         try {
-            // 获取摄像头权限
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: false
-            });
+            console.log('正在初始化摄像头...');
 
-            // 停止预览流
-            stream.getTracks().forEach(track => track.stop());
+            // 检查环境
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('浏览器不支持摄像头API');
+            }
 
             // 初始化 Html5Qrcode
             this.html5Qrcode = new Html5Qrcode(
@@ -149,7 +119,7 @@ class BarcodeScanner {
             );
 
             console.log('扫描器初始化成功');
-            this.elements.scannerInfo.innerHTML = '<p>摄像头已就绪</p>';
+            this.elements.scannerInfo.innerHTML = '<p>点击"开始扫描"按钮启动摄像头</p>';
             this.elements.startButton.disabled = false;
 
         } catch (error) {
@@ -157,75 +127,10 @@ class BarcodeScanner {
             this.elements.scannerInfo.innerHTML = `
                 <p style="color: #f44336;">摄像头初始化失败</p>
                 <p style="font-size: 12px; margin-top: 10px;">
-                    请检查浏览器权限设置,确保允许访问摄像头。
+                    ${error.message}
                 </p>
             `;
         }
-    }
-
-    // 绑定事件
-    bindEvents() {
-        // 开始扫描按钮
-        this.elements.startButton.addEventListener('click', () => {
-            this.startScanning();
-        });
-
-        // 停止扫描按钮
-        this.elements.stopButton.addEventListener('click', () => {
-            this.stopScanning();
-        });
-
-        // 监听窗口大小变化
-        window.addEventListener('resize', () => {
-            if (this.isScanning) {
-                this.updateScannerSize();
-            }
-        });
-
-        // 监听页面隐藏/显示
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden && this.isScanning) {
-                console.log('页面隐藏,暂停扫描');
-                this.stopScanning();
-            }
-        });
-    }
-
-    // 检查环境
-    checkEnvironment() {
-        // HTTPS 检查
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            console.warn('未使用HTTPS,某些功能可能受限');
-        }
-
-        // 浏览器支持检查
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            this.showNotification('当前浏览器不支持摄像头功能', 'error');
-        }
-    }
-
-    // 更新连接状态显示
-    updateConnectionStatus(connected) {
-        const statusDot = this.elements.connectionStatus;
-        const statusText = this.elements.connectionText;
-
-        statusDot.className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
-        statusText.textContent = connected ? '已连接到服务器' : '未连接到服务器';
-    }
-
-    // 更新PC客户端状态
-    updatePCStatus(connected, count = 0) {
-        const pcStatus = this.elements.pcStatus;
-
-        if (connected) {
-            pcStatus.textContent = `PC客户端: 已连接 (${count}台)`;
-            pcStatus.style.color = '#4CAF50';
-        } else {
-            pcStatus.textContent = 'PC客户端: 未连接';
-            pcStatus.style.color = '#666';
-        }
-
-        this.pcConnected = connected;
     }
 
     // 开始扫描
@@ -240,25 +145,58 @@ class BarcodeScanner {
             return;
         }
 
-        if (!this.pcConnected) {
-            this.showNotification('没有PC客户端连接', 'warning');
+        if (this.isScanning) {
+            return;
         }
 
         try {
-            // 配置扫描器
-            const config = {
-                fps: this.config.fps,
-                qrbox: this.config.qrbox,
-                aspectRatio: this.config.aspectRatio,
-                disableFlip: false,
-                showTorchButtonIfSupported: true,
-                showZoomSliderIfSupported: true
-            };
+            // 请求摄像头权限
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            stream.getTracks().forEach(track => track.stop());
+
+            // 获取摄像头列表并让用户选择
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cameras = devices.filter(device => device.kind === 'videoinput');
+
+            if (cameras.length === 0) {
+                throw new Error('未找到可用的摄像头');
+            }
+
+            // 如果有多个摄像头，询问用户选择
+            let selectedCameraId = null;
+            if (cameras.length > 1) {
+                // 优先选择后置摄像头
+                const backCamera = cameras.find(camera => {
+                    const label = camera.label || '';
+                    return label.toLowerCase().includes('back') ||
+                           label.toLowerCase().includes('rear') ||
+                           label.toLowerCase().includes('environment');
+                });
+
+                if (backCamera) {
+                    selectedCameraId = backCamera.deviceId;
+                    console.log('自动选择后置摄像头:', backCamera.label);
+                } else {
+                    // 让用户选择
+                    selectedCameraId = await this.askUserToSelectCamera(cameras);
+                }
+            } else {
+                selectedCameraId = cameras[0].deviceId;
+            }
+
+            if (!selectedCameraId) {
+                return; // 用户取消选择
+            }
 
             // 开始扫描
             await this.html5Qrcode.start(
-                { facingMode: "environment" },  // 使用后置摄像头
-                config,
+                selectedCameraId,
+                {
+                    fps: this.config.fps,
+                    qrbox: this.calculateQrBox(),
+                    aspectRatio: 1.0,
+                    disableFlip: false
+                },
                 this.onScanSuccess.bind(this),
                 this.onScanFailure.bind(this)
             );
@@ -269,16 +207,47 @@ class BarcodeScanner {
             this.elements.startButton.disabled = true;
             this.elements.stopButton.disabled = false;
 
-            // 更新扫描框大小
-            this.updateScannerSize();
-
             this.showNotification('开始扫描', 'success');
-            console.log('扫描已启动');
 
         } catch (error) {
             console.error('启动扫描失败:', error);
-            this.showNotification('启动扫描失败: ' + error.message, 'error');
+            this.showNotification('启动失败: ' + error.message, 'error');
         }
+    }
+
+    // 让用户选择摄像头
+    async askUserToSelectCamera(cameras) {
+        return new Promise((resolve) => {
+            const optionsHtml = cameras.map((camera, index) => {
+                const label = camera.label || `摄像头 ${index + 1}`;
+                const isBack = label.toLowerCase().includes('back') ||
+                              label.toLowerCase().includes('rear') ||
+                              label.toLowerCase().includes('environment');
+                const type = isBack ? '后置' : '前置';
+                return `<option value="${camera.deviceId}">${label} (${type})</option>`;
+            }).join('');
+
+            this.elements.scannerInfo.innerHTML = `
+                <div style="text-align: center; padding: 20px;">
+                    <p style="margin-bottom: 15px; font-weight: bold;">请选择要使用的摄像头:</p>
+                    <select id="cameraSelect" style="width: 100%; padding: 10px; margin-bottom: 15px;">
+                        ${optionsHtml}
+                    </select>
+                    <button id="confirmCameraBtn" class="btn btn-primary" style="width: 100%; padding: 10px;">确认</button>
+                </div>
+            `;
+            this.elements.scannerInfo.style.display = 'flex';
+
+            const select = document.getElementById('cameraSelect');
+            const button = document.getElementById('confirmCameraBtn');
+
+            button.onclick = () => {
+                const selectedId = select.value;
+                this.elements.scannerInfo.innerHTML = '<p>摄像头已就绪</p>';
+                this.elements.scannerInfo.style.display = 'flex';
+                resolve(selectedId);
+            };
+        });
     }
 
     // 停止扫描
@@ -289,17 +258,14 @@ class BarcodeScanner {
 
         try {
             await this.html5Qrcode.stop();
-
             this.isScanning = false;
             this.elements.reader.classList.add('hidden');
             this.elements.scannerInfo.style.display = 'flex';
+            this.elements.scannerInfo.innerHTML = '<p>点击"开始扫描"按钮启动摄像头</p>';
             this.elements.startButton.disabled = false;
             this.elements.stopButton.disabled = true;
-            this.elements.scannerInfo.innerHTML = '<p>摄像头已就绪</p>';
 
             this.showNotification('扫描已停止', 'info');
-            console.log('扫描已停止');
-
         } catch (error) {
             console.error('停止扫描失败:', error);
         }
@@ -307,26 +273,24 @@ class BarcodeScanner {
 
     // 扫描成功回调
     onScanSuccess(decodedText, decodedResult) {
-        console.log('扫码成功:', decodedText);
-        console.log('结果对象:', decodedResult);
+        if (decodedText !== this.lastScanned) {
+            this.lastScanned = decodedText;
+            console.log('扫码成功:', decodedText);
 
-        // 显示结果
-        this.showScanResult(decodedText);
+            // 显示结果
+            this.showScanResult(decodedText);
 
-        // 发送到服务器
-        this.sendBarcode(decodedText, decodedResult);
+            // 发送到服务器
+            this.sendBarcode(decodedText, decodedResult);
 
-        // 成功提示音(可选)
-        this.playBeep();
-
-        // 持续扫描,不停止
-        // 如果需要单次扫描,可以在这里调用 this.stopScanning()
+            // 成功提示音
+            this.playBeep();
+        }
     }
 
-    // 扫描失败回调(可用于调试)
+    // 扫描失败回调
     onScanFailure(error) {
-        // 扫描失败是正常的,因为一直在尝试扫描
-        // console.debug('扫描失败:', error);
+        // 无需处理，这是正常的扫描过程
     }
 
     // 发送条码到服务器
@@ -351,7 +315,7 @@ class BarcodeScanner {
         this.elements.resultPanel.classList.add('show');
         this.elements.resultContent.textContent = result;
 
-        // 自动隐藏结果面板(可选)
+        // 5秒后自动隐藏
         setTimeout(() => {
             this.elements.resultPanel.classList.remove('show');
         }, 5000);
@@ -360,11 +324,9 @@ class BarcodeScanner {
     // 显示通知
     showNotification(message, type = 'info', duration = 3000) {
         const notification = this.elements.notification;
-
         notification.textContent = message;
         notification.className = `notification ${type} show`;
 
-        // 自动隐藏
         setTimeout(() => {
             notification.classList.remove('show');
         }, duration);
@@ -373,76 +335,67 @@ class BarcodeScanner {
     // 播放提示音
     playBeep() {
         try {
-            const context = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = context.createOscillator();
-            const gainNode = context.createGain();
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
 
             oscillator.connect(gainNode);
-            gainNode.connect(context.destination);
+            gainNode.connect(audioContext.destination);
 
             oscillator.frequency.value = 800;
             oscillator.type = 'sine';
 
-            gainNode.gain.setValueAtTime(0.3, context.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
 
-            oscillator.start(context.currentTime);
-            oscillator.stop(context.currentTime + 0.1);
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
         } catch (error) {
             console.warn('无法播放提示音:', error);
         }
     }
 
-    // 更新扫描器大小
-    updateScannerSize() {
-        if (!this.html5Qrcode || !this.isScanning) {
-            return;
+    // 更新连接状态
+    updateConnectionStatus(connected) {
+        const statusDot = this.elements.connectionStatus;
+        const statusText = this.elements.connectionText;
+
+        statusDot.className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+        statusText.textContent = connected ? '已连接到服务器' : '未连接到服务器';
+    }
+
+    // 更新PC客户端状态
+    updatePCStatus(connected, count = 0) {
+        const pcStatus = this.elements.pcStatus;
+
+        if (connected) {
+            pcStatus.textContent = `PC客户端: 已连接 (${count}台)`;
+            pcStatus.style.color = '#4CAF50';
+        } else {
+            pcStatus.textContent = 'PC客户端: 未连接';
+            pcStatus.style.color = '#666';
         }
 
-        const container = document.querySelector('.scanner-placeholder');
-        const width = container.clientWidth - 40;
-        const height = container.clientHeight - 40;
-        const size = Math.min(width, height, 500);
-
-        this.config.qrbox.width = size;
-        this.config.qrbox.height = size;
-
-        // 重新应用配置
-        this.html5Qrcode.updateConfig({
-            qrbox: this.config.qrbox
-        });
+        this.pcConnected = connected;
     }
 }
 
-// 初始化应用
+// 绑定事件
 document.addEventListener('DOMContentLoaded', () => {
-    // 检查浏览器支持
-    if (!window.io) {
-        alert('Socket.IO 库加载失败,请检查网络连接');
-        return;
-    }
-
-    if (!window.Html5Qrcode) {
-        alert('二维码扫描库加载失败,请检查网络连接');
-        return;
-    }
-
-    // 创建扫码器实例
     const scanner = new BarcodeScanner();
 
-    // 全局错误处理
-    window.addEventListener('error', (event) => {
-        console.error('全局错误:', event.error);
+    // 绑定按钮事件
+    document.getElementById('startButton').addEventListener('click', () => {
+        scanner.startScanning();
     });
 
-    // 页面卸载时清理
-    window.addEventListener('beforeunload', () => {
-        if (scanner.html5Qrcode && scanner.isScanning) {
-            scanner.html5Qrcode.stop();
-        }
-        if (scanner.socket) {
-            scanner.socket.disconnect();
-        }
+    document.getElementById('stopButton').addEventListener('click', () => {
+        scanner.stopScanning();
+    });
+
+    // 窗口大小变化时更新扫描框
+    window.addEventListener('resize', () => {
+        // TODO: 动态更新扫描框大小
     });
 
     console.log('H5 扫码枪已初始化');

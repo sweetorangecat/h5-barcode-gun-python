@@ -143,7 +143,7 @@ class PCClientWorker(QObject):
     connection_changed = pyqtSignal(bool)
     log_message = pyqtSignal(str, str)
 
-    def __init__(self, server_ip='localhost', port=7788):
+    def __init__(self, server_ip='localhost', port=9999):
         super().__init__()
         self.server_ip = server_ip
         self.port = port
@@ -156,51 +156,51 @@ class PCClientWorker(QObject):
         pyautogui.PAUSE = 0
         pyautogui.FAILSAFE = True
 
-    @pyqtSlot()
-    def connect(self):
-        """连接到服务器"""
-        try:
-            self.server_url = f"http://{self.server_ip}:{self.port}"
-            self.sio = socketio.Client(
-                reconnection=True,
-                reconnection_attempts=5,
-                reconnection_delay=1
-            )
-
-            # 注册事件
-            self.sio.on('connect', self.on_connect)
-            self.sio.on('disconnect', self.on_disconnect)
-            self.sio.on('scan_result', self.on_scan_result)
-            self.sio.on('pong', self.on_pong)
-
-            self.log_message.emit(f"正在连接服务器: {self.server_url}", "info")
-            self.sio.connect(self.server_url)
-
-        except Exception as e:
-            logger.error(f"连接服务器失败: {e}")
-            self.log_message.emit(f"连接服务器失败: {e}", "error")
-
-    def on_connect(self):
-        """连接成功"""
-        logger.info("PC客户端已连接到服务器")
-        self.is_connected = True
-        self.connection_changed.emit(True)
-
-        # 发送客户端信息
-        self.sio.emit('client_info', {
-            'type': 'pc_client',
-            'platform': 'Windows',
-            'version': '2.0.0'
-        })
-
-        self.log_message.emit("PC客户端已连接", "success")
-
-    def on_disconnect(self):
-        """断开连接"""
-        logger.warning("与服务器断开连接")
-        self.is_connected = False
-        self.connection_changed.emit(False)
-        self.log_message.emit("与服务器断开连接", "warning")
+    # @pyqtSlot()
+    # def connect(self):
+    #     """连接到服务器"""
+    #     try:
+    #         self.server_url = f"http://{self.server_ip}:{self.port}"
+    #         self.sio = socketio.Client(
+    #             reconnection=True,
+    #             reconnection_attempts=5,
+    #             reconnection_delay=1
+    #         )
+    #
+    #         # 注册事件
+    #         self.sio.on('connect', self.on_connect)
+    #         self.sio.on('disconnect', self.on_disconnect)
+    #         self.sio.on('scan_result', self.on_scan_result)
+    #         self.sio.on('pong', self.on_pong)
+    #
+    #         self.log_message.emit(f"正在连接服务器: {self.server_url}", "info")
+    #         self.sio.connect(self.server_url)
+    #
+    #     except Exception as e:
+    #         logger.error(f"连接服务器失败: {e}")
+    #         self.log_message.emit(f"连接服务器失败: {e}", "error")
+    #
+    # def on_connect(self):
+    #     """连接成功"""
+    #     logger.info("PC客户端已连接到服务器")
+    #     self.is_connected = True
+    #     self.connection_changed.emit(True)
+    #
+    #     # 发送客户端信息
+    #     self.sio.emit('client_info', {
+    #         'type': 'pc_client',
+    #         'platform': 'Windows',
+    #         'version': '2.0.0'
+    #     })
+    #
+    #     self.log_message.emit("PC客户端已连接", "success")
+    #
+    # def on_disconnect(self):
+    #     """断开连接"""
+    #     logger.warning("与服务器断开连接")
+    #     self.is_connected = False
+    #     self.connection_changed.emit(False)
+    #     self.log_message.emit("与服务器断开连接", "warning")
 
     def on_scan_result(self, data):
         """接收扫码结果"""
@@ -301,30 +301,30 @@ class PCClientWindow(QMainWindow):
         server_group.setLayout(server_layout)
         left_layout.addWidget(server_group)
 
-        # PC客户端控制区域
-        client_group = QGroupBox("PC 客户端")
-        client_layout = QVBoxLayout()
+        # # PC客户端控制区域
+        # client_group = QGroupBox("PC 客户端")
+        # client_layout = QVBoxLayout()
 
-        # 连接/断开按钮
-        self.btn_connect = QPushButton("🔗 连接服务器")
-        self.btn_connect.clicked.connect(self.on_connect_clicked)
+        # # 连接/断开按钮
+        # self.btn_connect = QPushButton("🔗 连接服务器")
+        # self.btn_connect.clicked.connect(self.on_connect_clicked)
+        #
+        # self.btn_disconnect = QPushButton("⏏ 断开连接")
+        # self.btn_disconnect.clicked.connect(self.on_disconnect_clicked)
+        # self.btn_disconnect.setEnabled(False)
 
-        self.btn_disconnect = QPushButton("⏏ 断开连接")
-        self.btn_disconnect.clicked.connect(self.on_disconnect_clicked)
-        self.btn_disconnect.setEnabled(False)
+        # client_button_layout = QHBoxLayout()
+        # client_button_layout.addWidget(self.btn_connect)
+        # client_button_layout.addWidget(self.btn_disconnect)
+        # client_layout.addLayout(client_button_layout)
 
-        client_button_layout = QHBoxLayout()
-        client_button_layout.addWidget(self.btn_connect)
-        client_button_layout.addWidget(self.btn_disconnect)
-        client_layout.addLayout(client_button_layout)
-
-        # 客户端状态
-        self.lbl_client_status = QLabel("客户端状态: 未连接")
-        self.lbl_client_status.setStyleSheet("font-weight: bold; color: #666;")
-        client_layout.addWidget(self.lbl_client_status)
-
-        client_group.setLayout(client_layout)
-        left_layout.addWidget(client_group)
+        # # 客户端状态
+        # self.lbl_client_status = QLabel("客户端状态: 未连接")
+        # self.lbl_client_status.setStyleSheet("font-weight: bold; color: #666;")
+        # client_layout.addWidget(self.lbl_client_status)
+        #
+        # client_group.setLayout(client_layout)
+        # left_layout.addWidget(client_group)
 
         # 最近扫码显示
         scan_group = QGroupBox("最近扫码")
@@ -383,9 +383,9 @@ class PCClientWindow(QMainWindow):
         self.client_worker = PCClientWorker()
 
         # 连接信号
-        self.client_worker.connection_changed.connect(self.on_client_connection_changed)
-        self.client_worker.qr_detected.connect(self.on_qr_detected)
-        self.client_worker.log_message.connect(self.log)
+        # self.client_worker.connection_changed.connect(self.on_client_connection_changed)
+        # self.client_worker.qr_detected.connect(self.on_qr_detected)
+        # self.client_worker.log_message.connect(self.log)
 
     def init_tray_icon(self):
         """初始化系统托盘图标"""
@@ -406,12 +406,12 @@ class PCClientWindow(QMainWindow):
 
         self.stop_server_action = QAction("停止服务器", self)
         self.stop_server_action.triggered.connect(self.on_stop_server_clicked)
+        #
+        # self.connect_client_action = QAction("连接客户端", self)
+        # self.connect_client_action.triggered.connect(self.on_connect_clicked)
 
-        self.connect_client_action = QAction("连接客户端", self)
-        self.connect_client_action.triggered.connect(self.on_connect_clicked)
-
-        self.disconnect_client_action = QAction("断开客户端", self)
-        self.disconnect_client_action.triggered.connect(self.on_disconnect_clicked)
+        # self.disconnect_client_action = QAction("断开客户端", self)
+        # self.disconnect_client_action.triggered.connect(self.on_disconnect_clicked)
 
         self.quit_action = QAction("退出(&Q)", self)
         self.quit_action.triggered.connect(QApplication.quit)
@@ -423,9 +423,9 @@ class PCClientWindow(QMainWindow):
         tray_menu.addAction(self.start_server_action)
         tray_menu.addAction(self.stop_server_action)
         tray_menu.addSeparator()
-        tray_menu.addAction(self.connect_client_action)
-        tray_menu.addAction(self.disconnect_client_action)
-        tray_menu.addSeparator()
+        # tray_menu.addAction(self.connect_client_action)
+        # tray_menu.addAction(self.disconnect_client_action)
+        # tray_menu.addSeparator()
         tray_menu.addAction(self.quit_action)
 
         self.tray_icon.setContextMenu(tray_menu)
@@ -480,10 +480,10 @@ class PCClientWindow(QMainWindow):
         self.status_bar.showMessage("服务器运行中")
         self.log(f"服务器启动成功 - 地址: http://localhost:{port}", 'success')
 
-        # 自动连接客户端
-        self.client_worker.server_ip = 'localhost'
-        self.client_worker.port = port
-        self.on_connect_clicked()
+        # # 自动连接客户端
+        # self.client_worker.server_ip = 'localhost'
+        # self.client_worker.port = port
+        # self.on_connect_clicked()
 
     @pyqtSlot()
     def on_server_stopped(self):
@@ -498,8 +498,8 @@ class PCClientWindow(QMainWindow):
         self.status_bar.showMessage("服务器已停止")
         self.log("服务器已停止", 'warning')
 
-        # 断开客户端连接
-        self.on_disconnect_clicked()
+        # # 断开客户端连接
+        # self.on_disconnect_clicked()
 
     @pyqtSlot(dict)
     def on_status_update(self, info):
@@ -508,43 +508,43 @@ class PCClientWindow(QMainWindow):
             local_ip = info.get('ip', 'localhost')
             self.lbl_server_url.setText(f"服务器地址: http://{local_ip}:{info['port']}")
 
-    def on_connect_clicked(self):
-        """连接客户端"""
-        if not self.server_running:
-            self.log("请先启动服务器", 'warning')
-            return
+    # def on_connect_clicked(self):
+    #     """连接客户端"""
+    #     if not self.server_running:
+    #         self.log("请先启动服务器", 'warning')
+    #         return
+    #
+    #     self.btn_connect.setEnabled(False)
+    #     self.btn_disconnect.setEnabled(True)
+    #     self.connect_client_action.setEnabled(False)
+    #     self.disconnect_client_action.setEnabled(True)
 
-        self.btn_connect.setEnabled(False)
-        self.btn_disconnect.setEnabled(True)
-        self.connect_client_action.setEnabled(False)
-        self.disconnect_client_action.setEnabled(True)
+        # # 连接客户端
+        # self.client_worker.connect()
 
-        # 连接客户端
-        self.client_worker.connect()
-
-    def on_disconnect_clicked(self):
-        """断开客户端连接"""
-        self.btn_connect.setEnabled(True)
-        self.btn_disconnect.setEnabled(False)
-        self.connect_client_action.setEnabled(True)
-        self.disconnect_client_action.setEnabled(False)
-
-        self.client_worker.disconnect()
-        self.on_client_connection_changed(False)
-
-    @pyqtSlot(bool)
-    def on_client_connection_changed(self, connected):
-        """客户端连接状态改变"""
-        self.client_connected = connected
-
-        if connected:
-            self.lbl_client_status.setText("客户端状态: <span style='color: green;'>已连接</span>")
-            self.status_bar.showMessage("PC客户端已连接")
-            self.log("PC客户端已连接到服务器", 'success')
-        else:
-            self.lbl_client_status.setText("客户端状态: <span style='color: red;'>未连接</span>")
-            self.status_bar.showMessage("PC客户端未连接")
-            self.log("PC客户端已断开连接", 'warning')
+    # def on_disconnect_clicked(self):
+    #     """断开客户端连接"""
+    #     self.btn_connect.setEnabled(True)
+    #     self.btn_disconnect.setEnabled(False)
+    #     self.connect_client_action.setEnabled(True)
+    #     self.disconnect_client_action.setEnabled(False)
+    #
+    #     self.client_worker.disconnect()
+    #     self.on_client_connection_changed(False)
+    #
+    # @pyqtSlot(bool)
+    # def on_client_connection_changed(self, connected):
+    #     """客户端连接状态改变"""
+    #     self.client_connected = connected
+    #
+    #     if connected:
+    #         self.lbl_client_status.setText("客户端状态: <span style='color: green;'>已连接</span>")
+    #         self.status_bar.showMessage("PC客户端已连接")
+    #         self.log("PC客户端已连接到服务器", 'success')
+    #     else:
+    #         self.lbl_client_status.setText("客户端状态: <span style='color: red;'>未连接</span>")
+    #         self.status_bar.showMessage("PC客户端未连接")
+    #         self.log("PC客户端已断开连接", 'warning')
 
     @pyqtSlot(str)
     def on_qr_detected(self, barcode):
@@ -572,18 +572,20 @@ class PCClientWindow(QMainWindow):
             QMessageBox.No
         )
 
+        # 明确处理每个返回值
         if reply == QMessageBox.Yes:
+            logger.info("用户确认退出应用程序")
             # 停止服务器
             if self.server_thread.running:
                 self.server_thread.stop_server()
 
-            # 断开客户端
-            self.client_worker.disconnect()
-
             event.accept()
-        else:
+        elif reply == QMessageBox.No:
+            logger.info("用户取消退出操作")
             event.ignore()
-            self.hide()
+        else:
+            logger.warning(f"QMessageBox返回了未预期的值: {reply}")
+            event.ignore()  # 默认不关闭
 
 
 def main():

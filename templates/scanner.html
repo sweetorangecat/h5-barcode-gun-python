@@ -328,11 +328,54 @@
 
     <div class="notification" id="notification"></div>
 
+    <!-- 兼容性检查脚本（提前加载） -->
+    <script>
+        // 检查浏览器兼容性
+        window.BROWSER_COMPATIBILITY = {
+            hasMediaDevices: !!(navigator.mediaDevices),
+            hasGetUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+            hasEnumerateDevices: !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices),
+            hasWebSocket: !!window.WebSocket,
+            protocol: location.protocol,
+            hostname: location.hostname
+        };
+
+        console.log('浏览器兼容性预检查:', window.BROWSER_COMPATIBILITY);
+
+        // 如果缺少API，显示详细的错误信息
+        if (!window.BROWSER_COMPATIBILITY.hasGetUserMedia) {
+            document.addEventListener('DOMContentLoaded', function() {
+                document.getElementById('scannerInfo').innerHTML = `
+                    <div style="color: #f44336; padding: 20px;">
+                        <h3>浏览器不支持摄像头API</h3>
+                        <p style="font-size: 14px; margin-top: 10px;">
+                            缺少以下必需功能:
+                        </p>
+                        <ul style="font-size: 12px; text-align: left;">
+                            ${!window.BROWSER_COMPATIBILITY.hasMediaDevices ? '<li>navigator.mediaDevices</li>' : ''}
+                            ${!window.BROWSER_COMPATIBILITY.hasGetUserMedia ? '<li>getUserMedia</li>' : ''}
+                            ${!window.BROWSER_COMPATIBILITY.hasEnumerateDevices ? '<li>enumerateDevices</li>' : ''}
+                        </ul>
+                        <p style="font-size: 12px; margin-top: 10px;">
+                            <strong>可能原因:</strong><br>
+                            1. 需要HTTPS或localhost环境<br>
+                            2. 浏览器版本过旧<br>
+                            3. iOS某些浏览器限制
+                        </p>
+                        <p style="font-size: 12px; margin-top: 10px;">
+                            当前: ${location.protocol}://${location.hostname}
+                        </p>
+                    </div>
+                `;
+            });
+        }
+    </script>
+
     <!-- Socket.IO 客户端 -->
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <!-- QR Code扫描库 -->
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-    <!-- 主要逻辑 -->
-    <script src="{{ url_for('static', filename='scanner.js') }}"></script>
+    <!-- QR Code扫描库（本地版本，兼容性更好） -->
+    <script src="{{ url_for('static', filename='html5-qrcode.min.js') }}"></script>
+    <!-- 主要逻辑（整合版） -->
+    <script src="{{ url_for('static', filename='scanner_ultimate.js') }}"></script>
 </body>
 </html>
