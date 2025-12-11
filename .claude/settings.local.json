@@ -1,12 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(chmod +x package_macos.sh)",
-      "Bash(chmod +x package_linux.sh)",
-      "Bash(python:*)",
-      "Bash(ls:*)",
-      "WebFetch(domain:github.com)",
-      "Bash(dir \"D:\\工作\\h5-barcode-gun-master\\h5-barcode-gun-pc\\src\\main\\resources\\static\":*)"
+      "Bash(timeout 5 python dual_server.py)",
+      "Bash(timeout 5 python pc_client_windows.py)",
+      "Bash(dir:*)",
+      "WebFetch(domain:cdn.socket.io)",
+      "Bash(curl -o \"D:\\PythonWork\\h5-barcode-gun-python/static/socket.io.min.js\" https://cdn.socket.io/4.5.4/socket.io.min.js)",
+      "Bash(timeout 10 python:*)",
+      "Bash(ls -lh *.py)"
     ],
     "deny": [],
     "ask": []

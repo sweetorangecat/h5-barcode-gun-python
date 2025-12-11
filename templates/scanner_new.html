@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>H5 扫码枪</title>
+    <script src="{{ url_for('static', filename='html5-qrcode.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+        }
+
+        .container {
+            flex: 1;
+            max-width: 800px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 10px;
+        }
+
+        .status-bar {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ccc;
+        }
+
+        .status-dot.connected {
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+        }
+
+        .ws-info {
+            font-size: 12px;
+            color: #666;
+            text-align: right;
+        }
+
+        .scanner-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+        }
+
+        #qr-reader {
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+            display: block;
+        }
+
+        #qr-reader video {
+            width: 100% !important;
+            height: auto !important;
+            object-fit: cover;
+        }
+
+        .result-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+
+        .result-container.show {
+            display: block;
+        }
+
+        .result-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .result-barcode {
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            word-break: break-all;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #667eea;
+            color: white;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        button.danger {
+            background: #f44336;
+        }
+
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                flex-direction: column;
+            }
+
+            button {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div id="status-dot" class="status-dot disconnected"></div>
+                <span id="status-text">未连接</span>
+            </div>
+            <div class="ws-info">
+                <div>WS: <span id="ws-address">-</span></div>
+                <div>H5: <span id="mobile-count">0</span></div>
+            </div>
+        </div>
+
+        <div id="error-message" class="error-message"></div>
+
+        <div class="scanner-container">
+            <div id="qr-reader"></div>
+        </div>
+
+        <div id="result-container" class="result-container">
+            <div class="result-title">扫码结果：</div>
+            <div id="result-barcode" class="result-barcode"></div>
+        </div>
+
+        <div class="controls">
+            <select id="camera-select" style="flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px;">
+                <option value="">选择相机...</option>
+            </select>
+            <button id="start-button" onclick="startScanner()">开始扫码</button>
+            <button id="stop-button" onclick="stopScanner()" style="background: #f44336;" disabled>停止扫码</button>
+            <button onclick="enumerateCameras()">刷新相机列表</button>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let socket = null;
+        let html5QrCode = null;
+        let isConnected = false;
+        let cameraId = null;
+        let wsPort = {{ ws_port }};
+
+        // 获取当前页面的主机地址和协议
+        const host = window.location.hostname;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${host}:${wsPort}`;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 显示WebSocket地址
+            document.getElementById('ws-address').textContent = wsUrl;
+
+            // 自动连接WebSocket
+            console.log('正在连接WebSocket:', wsUrl);
+            connectWebSocket();
+
+            // 初始化扫码器（延迟初始化，确保库加载完成）
+            setTimeout(() => {
+                try {
+                    const qrReaderElement = document.getElementById('qr-reader');
+                    if (typeof Html5Qrcode !== 'undefined') {
+                        html5QrCode = new Html5Qrcode(qrReaderElement.id);
+                        console.log('Html5Qrcode initialized successfully');
+                    } else {
+                        console.error('Html5Qrcode library not loaded');
+                        showError('扫码库未加载，请刷新页面重试');
+                    }
+                } catch (error) {
+                    console.error('Failed to initialize Html5Qrcode:', error);
+                    showError('初始化扫码库失败: ' + error.message);
+                }
+            }, 1000); // 增加延迟到1秒，确保库完全加载
+        });
+
+        function connectWebSocket() {
+            if (socket) {
+                socket.disconnect();
+            }
+
+            console.log('正在连接WebSocket:', wsUrl);
+            socket = io.connect(wsUrl);
+
+            socket.on('connect', function() {
+                console.log('WebSocket已连接');
+                isConnected = true;
+                updateConnectionStatus(true);
+                showSuccess('已连接到服务器');
+
+                // 发送客户端信息
+                socket.emit('client_info', {
+                    type: 'mobile_client',
+                    platform: getMobilePlatform(),
+                    version: '2.0.0'
+                });
+            });
+
+            socket.on('disconnect', function() {
+                console.log('WebSocket已断开');
+                isConnected = false;
+                updateConnectionStatus(false);
+                showError('与服务器断开连接');
+            });
+
+            socket.on('server_response', function(data) {
+                console.log('服务器响应:', data);
+                if (data.status === 'registered') {
+                    showSuccess('设备已注册: ' + data.message);
+                }
+            });
+
+            socket.on('scan_confirm', function(data) {
+                console.log('扫码确认:', data);
+                if (data.status === 'success') {
+                    showSuccess('条码已发送: ' + data.barcode);
+                } else {
+                    showError('发送失败: ' + data.message);
+                }
+            });
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
+
+            if (connected) {
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = '已连接';
+            } else {
+                statusDot.className = 'status-dot disconnected';
+                statusText.textContent = '未连接';
+            }
+        }
+
+        function getMobilePlatform() {
+            const ua = navigator.userAgent;
+            if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS';
+            if (/Android/i.test(ua)) return 'Android';
+            return 'Mobile';
+        }
+
+        async function enumerateCameras() {
+            try {
+                const devices = await Html5Qrcode.getCameras();
+                const cameraSelect = document.getElementById('camera-select');
+
+                // 清空现有选项
+                cameraSelect.innerHTML = '<option value="">选择相机...</option>';
+
+                if (devices && devices.length) {
+                    console.log('找到 ' + devices.length + ' 个摄像头:', devices);
+
+                    // 添加所有相机到选择框
+                    devices.forEach((device, index) => {
+                        const option = document.createElement('option');
+                        option.value = device.id;
+
+                        // 创建友好的相机名称
+                        let cameraName = device.label || `相机 ${index + 1}`;
+                        if (cameraName.toLowerCase().includes('back') || cameraName.toLowerCase().includes('rear')) {
+                            cameraName += ' (后置)';
+                        } else if (cameraName.toLowerCase().includes('front')) {
+                            cameraName += ' (前置)';
+                        }
+
+                        option.textContent = cameraName;
+                        cameraSelect.appendChild(option);
+                    });
+
+                    showSuccess('已找到 ' + devices.length + ' 个摄像头，请选择要使用的相机');
+                } else {
+                    showError('未找到摄像头设备');
+                }
+            } catch (err) {
+                showError('获取相机列表失败: ' + err.message);
+                console.error(err);
+            }
+        }
+
+        // 页面加载时自动枚举相机
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                enumerateCameras();
+            }, 500);
+        });
+
+        async function startScanner() {
+            if (!isConnected) {
+                showError('请先等待WebSocket连接');
+                return;
+            }
+
+            // 获取选中的相机
+            const cameraSelect = document.getElementById('camera-select');
+            const selectedCameraId = cameraSelect.value;
+
+            if (!selectedCameraId) {
+                showError('请先选择要使用的相机');
+                return;
+            }
+
+            const startButton = document.getElementById('start-button');
+            const stopButton = document.getElementById('stop-button');
+
+            try {
+                const config = {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    aspectRatio: 1.0
+                };
+
+                console.log('使用相机:', selectedCameraId);
+                await html5QrCode.start(
+                    selectedCameraId,
+                    config,
+                    onScanSuccess,
+                    onScanFailure
+                );
+
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                cameraSelect.disabled = true;
+                showSuccess('扫码已启动，正在使用选中的相机');
+
+            } catch (err) {
+                showError('启动扫码失败: ' + err.message);
+                console.error(err);
+            }
+        }
+
+        async function stopScanner() {
+            const startButton = document.getElementById('start-button');
+            const stopButton = document.getElementById('stop-button');
+            const cameraSelect = document.getElementById('camera-select');
+
+            try {
+                await html5QrCode.stop();
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                cameraSelect.disabled = false;
+                showSuccess('扫码已停止');
+            } catch (err) {
+                showError('停止扫码失败: ' + err.message);
+                console.error(err);
+            }
+        }
+
+        function onScanSuccess(decodedText, decodedResult) {
+            console.log('扫码成功:', decodedText);
+            showResult(decodedText);
+
+            // 发送到服务器
+            if (socket && isConnected) {
+                socket.emit('scan_result', {
+                    barcode: decodedText,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+
+        function onScanFailure(error) {
+            // 扫码失败，不做处理
+        }
+
+        function showResult(barcode) {
+            const resultContainer = document.getElementById('result-container');
+            const resultBarcode = document.getElementById('result-barcode');
+
+            resultBarcode.textContent = barcode;
+            resultContainer.classList.add('show');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+            setTimeout(() => {
+                errorDiv.classList.remove('show');
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            console.log('Success:', message);
+            // 可以在界面上添加成功提示
+        }
+    </script>
+</body>
+</html>
