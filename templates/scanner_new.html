@@ -132,20 +132,43 @@
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            align-items: center;
         }
 
-        button {
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
             flex: 1;
             min-width: 120px;
-            padding: 12px 20px;
-            border: none;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        select, button {
+            padding: 10px;
             border-radius: 8px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.3s;
+        }
+
+        select {
+            border: 1px solid #ccc;
+            background: white;
+            color: #333;
+        }
+
+        button {
+            border: none;
             background: #667eea;
             color: white;
+            min-width: 100px;
         }
 
         button:active {
@@ -200,6 +223,22 @@
 
         <div id="error-message" class="error-message"></div>
 
+        <div id="stats-panel" class="stats-panel">
+            <div class="stats-title">扫码统计</div>
+            <div class="stats-item">
+                <span>设置间隔:</span>
+                <span id="stats-interval">500ms</span>
+            </div>
+            <div class="stats-item">
+                <span>实际间隔:</span>
+                <span id="stats-actual-interval">-</span>
+            </div>
+            <div class="stats-item">
+                <span>忽略次数:</span>
+                <span id="stats-skipped">0</span>
+            </div>
+        </div>
+
         <div class="scanner-container">
             <div id="qr-reader"></div>
         </div>
@@ -210,9 +249,21 @@
         </div>
 
         <div class="controls">
-            <select id="camera-select" style="flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 14px;">
-                <option value="">选择相机...</option>
-            </select>
+            <div class="control-group">
+                <label for="camera-select">相机选择</label>
+                <select id="camera-select">
+                    <option value="">选择相机...</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="scan-frequency">识别频率</label>
+                <select id="scan-frequency" onchange="updateScanFrequency()">
+                    <option value="100">高频率 (100ms)</option>
+                    <option value="500" selected>中频率 (500ms)</option>
+                    <option value="1000">低频率 (1秒)</option>
+                    <option value="2000">较低频率 (2秒)</option>
+                </select>
+            </div>
             <button id="start-button" onclick="startScanner()">开始扫码</button>
             <button id="stop-button" onclick="stopScanner()" style="background: #f44336;" disabled>停止扫码</button>
             <button onclick="enumerateCameras()">刷新相机列表</button>
@@ -226,6 +277,9 @@
         let isConnected = false;
         let cameraId = null;
         let wsPort = {{ ws_port }};
+        let lastScanTime = 0;
+        let scanFrequency = 500; // 默认500ms
+        let isScanning = false;
 
         // 获取当前页面的主机地址和协议
         const host = window.location.hostname;
@@ -257,6 +311,14 @@
                     showError('初始化扫码库失败: ' + error.message);
                 }
             }, 1000); // 增加延迟到1秒，确保库完全加载
+
+            // 初始化扫描频率（如果已配置）
+            const savedFrequency = localStorage.getItem('scanFrequency');
+            if (savedFrequency) {
+                scanFrequency = parseInt(savedFrequency);
+                document.getElementById('scan-frequency').value = savedFrequency;
+                console.log('已加载保存的扫描频率:', scanFrequency);
+            }
         });
 
         function connectWebSocket() {
@@ -316,6 +378,17 @@
                 statusDot.className = 'status-dot disconnected';
                 statusText.textContent = '未连接';
             }
+        }
+
+        function updateScanFrequency() {
+            const frequencySelect = document.getElementById('scan-frequency');
+            scanFrequency = parseInt(frequencySelect.value);
+
+            // 保存到localStorage
+            localStorage.setItem('scanFrequency', scanFrequency);
+
+            console.log('扫描频率已更新为:', scanFrequency, '毫秒');
+            showSuccess('已切换到' + frequencySelect.options[frequencySelect.selectedIndex].text);
         }
 
         function getMobilePlatform() {
@@ -432,14 +505,27 @@
         }
 
         function onScanSuccess(decodedText, decodedResult) {
-            console.log('扫码成功:', decodedText);
+            const currentTime = Date.now();
+            const timeSinceLastScan = currentTime - lastScanTime;
+
+            // 检查是否达到扫描间隔时间
+            if (timeSinceLastScan < scanFrequency) {
+                // 未达到间隔时间，忽略此次扫描
+                return;
+            }
+
+            // 更新最后扫描时间
+            lastScanTime = currentTime;
+
+            console.log('扫码成功:', decodedText, '(间隔:', timeSinceLastScan, 'ms)');
             showResult(decodedText);
 
             // 发送到服务器
             if (socket && isConnected) {
                 socket.emit('scan_result', {
                     barcode: decodedText,
-                    timestamp: new Date().toISOString()
+                    timestamp: new Date().toISOString(),
+                    interval: timeSinceLastScan
                 });
             }
         }

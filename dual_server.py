@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 from dotenv import load_dotenv
+from keyboard_simulator import simulate_keyboard_input
 
 # 加载环境变量
 load_dotenv()
@@ -25,6 +26,13 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 禁用Flask的开发服务器警告
+import warnings
+warnings.filterwarnings('ignore', message='.*development server.*')
+warnings.filterwarnings('ignore', message='.*production deployment.*')
+import os
+os.environ['FLASK_ENV'] = 'development'
 
 
 class DualBarcodeGunServer:
@@ -41,19 +49,20 @@ class DualBarcodeGunServer:
         self.app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'h5-barcode-gun-secret')
 
         # 配置SocketIO绑定到ws_port
+        # 注意：不使用eventlet，使用threading模式避免卡死
         self.socketio = SocketIO(
             self.app,
             cors_allowed_origins="*",
-            logger=True,
-            engineio_logger=True,
-            async_mode='eventlet',
+            logger=False,  # 关闭日志避免性能问题
+            engineio_logger=False,
+            async_mode='threading',  # 使用threading替代eventlet，更稳定
             ping_timeout=60,
-            ping_interval=30
+            ping_interval=30,
+            async_handlers=True# 异步处理handler
         )
 
         # 存储连接的客户端
         self.mobile_clients = {}  # 手机端客户端
-        self.pc_clients = {}      # PC客户端
         self.scan_count = 0       # 扫码次数统计
         self.start_time = datetime.now()  # 服务器启动时间
 
@@ -110,9 +119,6 @@ class DualBarcodeGunServer:
             if sid in self.mobile_clients:
                 del self.mobile_clients[sid]
                 logger.info(f"手机端断开连接: {sid}")
-            elif sid in self.pc_clients:
-                del self.pc_clients[sid]
-                logger.info(f"PC客户端断开连接: {sid}")
             else:
                 logger.info(f"未知客户端断开连接: {sid}")
 
@@ -140,15 +146,6 @@ class DualBarcodeGunServer:
                     'message': '手机端已注册',
                     'client_type': 'mobile'
                 })
-
-            elif client_type == 'pc_client':
-                self.pc_clients[sid] = client_info
-                logger.info(f"PC客户端连接: {sid} (平台: {platform})")
-                emit('server_response', {
-                    'status': 'registered',
-                    'message': 'PC客户端已注册',
-                    'client_type': 'pc'
-                })
             else:
                 logger.warning(f"未知客户端类型: {client_type}")
 
@@ -166,20 +163,20 @@ class DualBarcodeGunServer:
                 logger.info(f"手机平台: {client_info.get('platform', 'unknown')}, 连接ID: {request.sid}")
                 logger.info(f"=*==*==*==*==*==*==*==*==*==*==*==*==*==*==*==*==*==*==*==*=")
 
+                # 模拟键盘输入条码并添加回车符
+                logger.info(f"正在模拟键盘输入条码: {barcode}")
+                keyboard_success = simulate_keyboard_input(barcode)
+                if keyboard_success:
+                    logger.info("✓ 键盘模拟输入成功")
+                else:
+                    logger.error("✗ 键盘模拟输入失败")
+
                 # 通过回调通知PC客户端（如果设置了回调）
                 if self.barcode_callback:
                     try:
                         self.barcode_callback(barcode)
                     except Exception as e:
                         logger.error(f"调用条码回调失败: {e}")
-
-                # 广播给所有PC客户端
-                for pc_sid in self.pc_clients.keys():
-                    emit('scan_result', {
-                        'barcode': barcode,
-                        'timestamp': datetime.now().isoformat(),
-                        'from_mobile': client_info.get('platform', 'unknown')
-                    }, room=pc_sid)
 
                 # 确认收到并打印确认消息
                 emit('scan_confirm', {
@@ -214,8 +211,7 @@ class DualBarcodeGunServer:
             'ws_port': self.ws_port,
             'ip': self.get_local_ip(),
             'mobile_clients': len(self.mobile_clients),
-            'pc_clients': len(self.pc_clients),
-            'total_connections': len(self.mobile_clients) + len(self.pc_clients),
+            'total_connections': len(self.mobile_clients),
             'scan_count': self.scan_count,
             'start_time': self.start_time.isoformat(),
             'uptime': str(datetime.now() - self.start_time)
@@ -273,10 +269,7 @@ class DualBarcodeGunServer:
                 logger.error("无法创建SSL上下文")
                 return
 
-            # 使用证书文件路径而不是ssl_context对象
-            cert_file = cert_manager.cert_file
-            key_file = cert_manager.key_file
-
+            # 注意：socketio.run()接受ssl_context参数
             self.socketio.run(
                 self.app,
                 host=self.http_host,
@@ -284,8 +277,8 @@ class DualBarcodeGunServer:
                 debug=False,
                 use_reloader=False,
                 log_output=True,
-                certfile=cert_file,  # 使用certfile参数
-                keyfile=key_file     # 使用keyfile参数
+                ssl_context=ssl_context,  # 使用ssl_context参数
+                allow_unsafe_werkzeug=True  # 允许在threading模式下使用Werkzeug
             )
         except Exception as e:
             logger.error(f"WebSocket服务器运行出错: {e}", exc_info=True)
@@ -300,20 +293,25 @@ class DualBarcodeGunServer:
         logger.info("正在启动双端口服务器...")
 
         # 启动HTTP服务器线程（非守护线程）
-        self.http_thread = threading.Thread(target=self.start_http_server, daemon=False)
+        self.http_thread = threading.Thread(target=self.start_http_server, daemon=True)
         self.http_thread.start()
 
         # 等待一下确保HTTP服务器启动
         time.sleep(0.5)
 
         # 启动WebSocket服务器线程（非守护线程）
-        self.ws_thread = threading.Thread(target=self.start_ws_server, daemon=False)
+        self.ws_thread = threading.Thread(target=self.start_ws_server, daemon=True)
         self.ws_thread.start()
 
         logger.info("双端口服务器启动完成")
 
-    def stop(self):
-        """停止服务器"""
+    def stop(self, wait=False):
+        """
+        停止服务器（避免使用可能导致死锁的方法）
+
+        Args:
+            wait: 是否等待线程关闭（默认False，立即终止）
+        """
         if not self.running:
             logger.warning("服务器未在运行")
             return
@@ -321,11 +319,31 @@ class DualBarcodeGunServer:
         logger.info("正在停止服务器...")
         self.running = False
 
-        # 停止SocketIO服务器（会同时停止WebSocket）
-        self.socketio.stop()
+        try:
+            # 1. 清空客户端列表，断开连接
+            logger.debug("清空客户端列表...")
+            self.mobile_clients.clear()
 
-        logger.info("服务器已停止")
+            # 2. 停止定时器
+            if hasattr(self, 'timer') and self.timer:
+                try:
+                    logger.debug("停止定时器...")
+                    self.timer.stop()
+                except:
+                    pass
 
+            # 3. 不要使用socketio.stop()，它可能导致死锁
+            # 而是直接标记running=False，让线程自己退出
+            # logger.debug("标记服务器为停止状态，让线程自行退出...")
+
+            logger.info("服务器已停止（立即强制退出）")
+
+            # 4. 立即强制退出进程，不等待
+            if not wait:
+                logger.info("立即强制退出进程...")
+                os._exit(0)
+        except Exception as e:
+            os._exit(0)
 
 def main():
     """主函数"""

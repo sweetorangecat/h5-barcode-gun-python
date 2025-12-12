@@ -5,18 +5,40 @@ H5 Barcode Gun - Windows PC客户端
 """
 
 import sys
-import os
-import asyncio
-import socketio
-import pyautogui
 import logging
 from datetime import datetime
 from pathlib import Path
+import ctypes
 
 # 检查Windows平台
 if sys.platform != 'win32':
     print("错误：此客户端仅支持Windows平台")
     sys.exit(1)
+
+# 定义Windows常量
+ERROR_ALREADY_EXISTS = 183
+
+# 定义单实例检查函数
+def check_single_instance():
+    """使用Windows mutex检查单实例"""
+    mutex_name = "Global\\H5BarcodeGunClient"
+
+    # 创建mutex
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+
+    # 检查错误码
+    error = ctypes.windll.kernel32.GetLastError()
+
+    if error == ERROR_ALREADY_EXISTS:
+        # mutex已存在，说明有另一个实例在运行
+        ctypes.windll.kernel32.CloseHandle(mutex)
+        return False
+
+    # 保存mutex句柄，避免被垃圾回收
+    # 我们将它保存在全局变量中
+    global app_mutex
+    app_mutex = mutex
+    return True
 
 # 导入PyQt5
 from PyQt5.QtWidgets import (
@@ -27,14 +49,18 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtSlot
 from PyQt5.QtGui import QIcon, QPixmap, QImage, QTextCursor
 
+# 导入二维码库
+import qrcode
+from PIL import ImageQt
+
 # 将项目目录加入Python路径
 project_dir = Path(__file__).parent
 sys.path.insert(0, str(project_dir))
 
 from dual_server import DualBarcodeGunServer
-from threading import Thread
-import requests
-import socket
+# from threading import Thread
+# import requests
+# import socket
 
 # 配置日志
 logging.basicConfig(
@@ -76,26 +102,35 @@ class ServerThread(QObject):
 
     @pyqtSlot()
     def stop_server(self):
-        """停止服务器"""
+        """停止服务器（安全终止）"""
         if not self.running:
             self.log_message.emit("服务器未在运行", "warning")
             return
 
         try:
-            self.log_message.emit("正在停止服务器...", "info")
+            self.log_message.emit("正在安全地停止服务器...", "info")
             self.running = False
 
-            if hasattr(self, 'timer'):
-                self.timer.stop()
+            # 停止定时器
+            if hasattr(self, 'timer') and self.timer:
+                try:
+                    logger.debug("停止定时器...")
+                    self.timer.stop()
+                except:
+                    pass
 
+            # 停止服务器（不立即终止，避免卡死）
             if self.server:
-                self.server.stop()
+                logger.debug("调用服务器stop方法...")
+                # 调用stop时等待，避免立即终止导致卡死
+                self.server.stop(wait=True)
 
             self.server_stopped.emit()
-            self.log_message.emit("服务器已停止", "success")
+            self.log_message.emit("服务器已安全停止", "success")
 
         except Exception as e:
             logger.error(f"停止服务器失败: {e}")
+            self.log_message.emit(f"停止服务器失败: {e}", "error")
 
     @pyqtSlot()
     def update_status(self):
@@ -109,15 +144,6 @@ class ServerThread(QObject):
         except Exception as e:
             logger.debug(f"更新状态失败: {e}")
 
-    #
-    #
-    #
-    #
-    #
-    #
-    #
-    #
-    #
     def _run_https_server(self, ssl_context):
         """在后台线程运行HTTPS服务器"""
         try:
@@ -127,74 +153,15 @@ class ServerThread(QObject):
             self.log_message.emit(f"服务器运行出错: {e}", "error")
 
 
-
-class PCClientWorker(QObject):
-    """PC客户端Worker，负责接收扫码数据"""
-
-    qr_detected = pyqtSignal(str)
-    connection_changed = pyqtSignal(bool)
-    log_message = pyqtSignal(str, str)
-
-    def __init__(self, server_ip='localhost', port=9999):
-        super().__init__()
-        self.server_ip = server_ip
-        self.port = port
-        self.is_connected = False
-
-        # SocketIO客户端
-        self.sio = None
-
-        # PyAutoGUI配置
-        pyautogui.PAUSE = 0
-        pyautogui.FAILSAFE = True
-
-    #
-    #
-    #
-    #
-    #
-    #
-    #
-
-    def on_scan_result(self, data):
-        """接收扫码结果"""
-        barcode = data.get('barcode', '')
-        if not barcode:
-            logger.warning("接收到空的条码数据")
-            return
-
-        logger.info(f"收到条码: {barcode}")
-
-        try:
-            # 模拟键盘输入
-            pyautogui.typewrite(barcode)
-            pyautogui.press('enter')
-
-            self.qr_detected.emit(barcode)
-            self.log_message.emit(f"已输入条码: {barcode}", "success")
-
-        except Exception as e:
-            logger.error(f"模拟键盘输入失败: {e}")
-            self.log_message.emit(f"输入失败: {e}", "error")
-
-    def on_pong(self, data):
-        """心跳响应"""
-        logger.debug("收到心跳响应")
-
-    @pyqtSlot()
-    def disconnect(self):
-        """断开连接"""
-        if self.sio:
-            self.sio.disconnect()
-
-
 class PCClientWindow(QMainWindow):
     """主窗口类"""
 
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("H5 扫码枪 - Windows 客户端 v2.0")
+        self.setWindowTitle("H5 扫码枪 - Windows 客户端 v1.0")
+        icon = QIcon("static/scan_icon.png")
+        self.setWindowIcon(icon)
         self.setMinimumSize(900, 700)
 
         # 创建主Widget
@@ -207,7 +174,6 @@ class PCClientWindow(QMainWindow):
         # 初始化组件
         self.init_ui()
         self.init_server_thread()
-        self.init_client_worker()
         self.init_tray_icon()
         self.barcode = None
 
@@ -289,38 +255,27 @@ class PCClientWindow(QMainWindow):
         server_group.setLayout(server_layout)
         left_layout.addWidget(server_group)
 
-        # # PC客户端控制区域
-        # client_group = QGroupBox("PC 客户端")
-        # client_layout = QVBoxLayout()
+        # 二维码显示区域
+        qr_group = QGroupBox("手机端访问二维码")
+        qr_layout = QVBoxLayout()
 
-        # # 连接/断开按钮
-        #
+        # 二维码标签
+        self.lbl_qr_code = QLabel()
+        self.lbl_qr_code.setAlignment(Qt.AlignCenter)
+        self.lbl_qr_code.setMinimumSize(200, 200)
+        self.lbl_qr_code.setStyleSheet("border: 1px dashed #ccc; background-color: #f9f9f9;")
+        self.lbl_qr_code.setText("启动服务器后\n显示二维码")
+        qr_layout.addWidget(self.lbl_qr_code)
 
-        # client_button_layout = QHBoxLayout()
-        # client_button_layout.addWidget(self.btn_connect)
-        # client_button_layout.addWidget(self.btn_disconnect)
-        # client_layout.addLayout(client_button_layout)
+        # HTTP地址显示在二维码下方
+        self.lbl_http_url_simple = QLabel("-")
+        self.lbl_http_url_simple.setAlignment(Qt.AlignCenter)
+        self.lbl_http_url_simple.setWordWrap(True)
+        self.lbl_http_url_simple.setStyleSheet("font-family: 'Courier New'; font-size: 12px; color: #333; padding: 5px;")
+        qr_layout.addWidget(self.lbl_http_url_simple)
 
-        # # 客户端状态
-        # client_layout.addWidget(self.lbl_client_status)
-        #
-        # client_group.setLayout(client_layout)
-        # left_layout.addWidget(client_group)
-
-        # 最近扫码显示
-        scan_group = QGroupBox("最近扫码")
-        scan_layout = QVBoxLayout()
-
-        self.lbl_last_barcode = QLabel("等待扫描...")
-        self.lbl_last_barcode.setStyleSheet(
-            "font-family: 'Courier New'; font-size: 14px; padding: 10px;"
-            "background: #f0f0f0; border: 1px solid #ccc; border-radius: 5px;"
-        )
-        self.lbl_last_barcode.setWordWrap(True)
-        scan_layout.addWidget(self.lbl_last_barcode)
-
-        scan_group.setLayout(scan_layout)
-        left_layout.addWidget(scan_group)
+        qr_group.setLayout(qr_layout)
+        left_layout.addWidget(qr_group)
 
         # 添加拉伸区域
         left_layout.addStretch()
@@ -359,11 +314,6 @@ class PCClientWindow(QMainWindow):
         self.server_thread.log_message.connect(self.log)
         self.server_thread.barcode_received.connect(self.on_barcode_received)
 
-    def init_client_worker(self):
-        """初始化客户端"""
-        self.client_worker = PCClientWorker()
-
-        # 连接信号
 
     def init_tray_icon(self):
         """初始化系统托盘图标"""
@@ -397,9 +347,6 @@ class PCClientWindow(QMainWindow):
         tray_menu.addAction(self.start_server_action)
         tray_menu.addAction(self.stop_server_action)
         tray_menu.addSeparator()
-        # tray_menu.addAction(self.connect_client_action)
-        # tray_menu.addAction(self.disconnect_client_action)
-        # tray_menu.addSeparator()
         tray_menu.addAction(self.quit_action)
 
         self.tray_icon.setContextMenu(tray_menu)
@@ -498,22 +445,6 @@ class PCClientWindow(QMainWindow):
             self.btn_stop_server.setEnabled(False)
             self.start_server_action.setEnabled(True)
             self.stop_server_action.setEnabled(False)
-        # # 启动HTTPS服务器（自动生成证书）
-        # reply = QMessageBox.question(
-        #     self, '选择服务器类型',
-        #     '是否启动HTTPS服务器（自动创建SSL证书）？\n\n' +
-        #     '注意：摄像头功能需要HTTPS才能正常工作',
-        #     QMessageBox.Yes | QMessageBox.No,
-        #     QMessageBox.Yes
-        # )
-        #
-        # if reply == QMessageBox.Yes:
-        #     # 启动HTTPS服务器
-        #     self.log("正在生成SSL证书（如果需要）...", "info")
-        #     self.server_thread.start_https_server(port=5100)
-        # else:
-        #     # 启动HTTP服务器（向后兼容）
-        #     self.server_thread.start_server(port=5100)
 
     def on_stop_server_clicked(self):
         """点击停止服务器按钮"""
@@ -530,11 +461,17 @@ class PCClientWindow(QMainWindow):
         http_port = info.get('http_port', 5100)
         ws_port = info.get('ws_port', 9999)
 
-        self.lbl_http_url.setText(f"HTTP地址: http://{local_ip}:{http_port}")
+        # 构建HTTP地址
+        http_url = f"https://{local_ip}:{http_port}"
+
+        self.lbl_http_url.setText(f"手机H5地址: {http_url}")
         self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
         self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
         self.status_bar.showMessage("服务器运行中")
         self.log(f"服务器启动成功 - HTTP: {local_ip}:{http_port}, WebSocket: {ws_port}", 'success')
+
+        # 生成并显示二维码
+        self.generate_qr_code(http_url)
 
         # # 自动连接客户端
 
@@ -566,14 +503,6 @@ class PCClientWindow(QMainWindow):
             self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
             self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
 
-    #
-
-        # # 连接客户端
-
-    #
-    #
-    #
-
     @pyqtSlot(str)
     def on_qr_detected(self, barcode):
         """接收到二维码"""
@@ -591,6 +520,64 @@ class PCClientWindow(QMainWindow):
         if reason == QSystemTrayIcon.DoubleClick:
             self.show_normal()
 
+    def generate_qr_code(self, url):
+        """
+        生成二维码并显示在标签上
+
+        Args:
+            url: 要生成二维码的URL
+        """
+        try:
+            logger.info(f"生成二维码: {url}")
+
+            # 创建QR code实例
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+
+            # 添加数据
+            qr.add_data(url)
+            qr.make(fit=True)
+
+            # 生成图像
+            img = qr.make_image(fill_color="black", back_color="white")
+
+            # 转换为QPixmap（处理不同版本的PIL）
+            try:
+                # 尝试使用PIL 8.0+的方式
+                from PIL.ImageQt import ImageQt
+                qt_image = ImageQt(img)
+                pixmap = QPixmap.fromImage(qt_image)
+            except ImportError:
+                # 如果导入失败，使用替代方法：将图像保存到BytesIO，再加载为QPixmap
+                from io import BytesIO
+                buffer = BytesIO()
+                img.save(buffer, format='PNG')
+                buffer.seek(0)
+                pixmap = QPixmap()
+                pixmap.loadFromData(buffer.getvalue())
+
+            # 调整大小以适应标签
+            scaled_pixmap = pixmap.scaled(
+                self.lbl_qr_code.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+
+            # 显示二维码
+            self.lbl_qr_code.setPixmap(scaled_pixmap)
+            self.lbl_http_url_simple.setText(url)
+
+            logger.info("二维码生成成功")
+
+        except Exception as e:
+            logger.error(f"生成二维码失败: {e}")
+            self.lbl_qr_code.setText(f"生成失败\n{e}")
+            self.lbl_http_url_simple.setText(url)
+
     def show_normal(self):
         """显示窗口"""
         self.show()
@@ -598,24 +585,30 @@ class PCClientWindow(QMainWindow):
         self.activateWindow()
 
     def closeEvent(self, event):
-        """关闭事件 - 用户确认后直接关闭所有线程"""
+        """关闭事件 - 用户确认后安全关闭"""
         reply = QMessageBox.question(
             self, '确认退出',
-            "确定要退出H5扫码枪客户端吗？",
+            "确定要退出H5扫码枪客户端吗？\n\n注意：这将停止所有服务！",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
 
         # 明确处理每个返回值
         if reply == QMessageBox.Yes:
-            logger.info("用户确认退出应用程序，正在关闭所有线程...")
-
-            # 停止服务器线程
+            # 停止服务器（安全方式，避免立即终止导致卡死）
             if self.server_thread.running:
+                logger.info("用户确认退出应用程序，正在安全关闭...")
                 self.server_thread.stop_server()
+                event.accept()
+                # 延迟退出，让界面有时间响应和日志输出
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(200, sys.exit(0))
+            else:
+                event.accept()
+                # 延迟退出，让界面有时间响应和日志输出
+                from PyQt5.QtCore import QTimer
+                QTimer.singleShot(200, sys.exit(0))
 
-            logger.info("应用程序已关闭")
-            event.accept()
         elif reply == QMessageBox.No:
             logger.info("用户取消退出操作")
             event.ignore()
@@ -631,6 +624,11 @@ def main():
     app.setStyle('Fusion')
 
     app.setWindowIcon(QIcon(str(project_dir / 'static' / 'icon.ico')))
+
+    # 检查是否已有实例在运行
+    if not check_single_instance():
+        QMessageBox.warning(None, "警告", "H5扫码枪客户端已在运行中！")
+        sys.exit(0)
 
     window = PCClientWindow()
 
