@@ -44,23 +44,19 @@ def check_single_instance():
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QMessageBox, QGroupBox,
-    QStatusBar, QSystemTrayIcon, QMenu, QAction, QSplitter, QStyle
+    QStatusBar, QSystemTrayIcon, QMenu, QAction, QStyle
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, pyqtSlot
-from PyQt5.QtGui import QIcon, QPixmap, QImage, QTextCursor
+from PyQt5.QtGui import QIcon, QPixmap, QTextCursor
 
 # 导入二维码库
 import qrcode
-from PIL import ImageQt
 
 # 将项目目录加入Python路径
 project_dir = Path(__file__).parent
 sys.path.insert(0, str(project_dir))
 
-from dual_server import DualBarcodeGunServer
-# from threading import Thread
-# import requests
-# import socket
+from utils.dual_server import DualBarcodeGunServer
 
 # 配置日志
 logging.basicConfig(
@@ -160,7 +156,8 @@ class PCClientWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("H5 扫码枪 - Windows 客户端 v1.0")
-        icon = QIcon("static/scan_icon.png")
+        icon_path = project_dir / 'static' / 'scan_icon.png'
+        icon = QIcon(str(icon_path))
         self.setWindowIcon(icon)
         self.setMinimumSize(900, 700)
 
@@ -394,7 +391,7 @@ class PCClientWindow(QMainWindow):
                 return
 
             # 检查证书
-            from cert_utils import CertManager
+            from utils.cert_utils import CertManager
             cert_manager = CertManager()
             self.log("检查证书文件...", "info")
 
@@ -468,7 +465,7 @@ class PCClientWindow(QMainWindow):
         self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
         self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
         self.status_bar.showMessage("服务器运行中")
-        self.log(f"服务器启动成功 - HTTP: {local_ip}:{http_port}, WebSocket: {ws_port}", 'success')
+        self.log(f"服务器启动成功 - HTTPS: {local_ip}:{http_port}, WebSocket: {ws_port}", 'success')
 
         # 生成并显示二维码
         self.generate_qr_code(http_url)
@@ -499,7 +496,7 @@ class PCClientWindow(QMainWindow):
             local_ip = info.get('ip', 'localhost')
             http_port = info.get('http_port', 5100)
             ws_port = info.get('ws_port', 9999)
-            self.lbl_http_url.setText(f"HTTP地址: http://{local_ip}:{http_port}")
+            self.lbl_http_url.setText(f"HTTP地址: https://{local_ip}:{http_port}")
             self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
             self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
 

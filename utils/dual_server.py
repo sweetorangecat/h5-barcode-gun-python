@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 from dotenv import load_dotenv
-from keyboard_simulator import simulate_keyboard_input
+from utils.keyboard_simulator import simulate_keyboard_input
 
 # 加载环境变量
 load_dotenv()
@@ -45,7 +45,14 @@ class DualBarcodeGunServer:
         self.barcode_callback = barcode_callback  # 用于通知PC客户端的回调函数
 
         # 创建Flask应用
-        self.app = Flask(__name__)
+        # 配置模板和静态文件路径，确保在打包后也能正确找到
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        template_folder = os.path.join(project_dir, 'templates')
+        static_folder = os.path.join(project_dir, 'static')
+
+        self.app = Flask(__name__,
+                        template_folder=template_folder,
+                        static_folder=static_folder)
         self.app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'h5-barcode-gun-secret')
 
         # 配置SocketIO绑定到ws_port
@@ -85,11 +92,6 @@ class DualBarcodeGunServer:
         def index():
             """手机端扫码页面"""
             return render_template('scanner_new.html', ws_port=self.ws_port)
-
-        @self.app.route('/admin')
-        def admin():
-            """PC管理页面"""
-            return render_template('admin.html', ws_port=self.ws_port)
 
         @self.app.route('/api/status')
         def get_status():
@@ -228,7 +230,7 @@ class DualBarcodeGunServer:
             logger.info(f"HTTPS服务器启动于 {self.http_host}:{self.http_port}")
 
             # 加载SSL证书
-            from cert_utils import CertManager
+            from utils.cert_utils import CertManager
             cert_manager = CertManager()
 
             if not cert_manager.check_and_create_cert():
@@ -257,7 +259,7 @@ class DualBarcodeGunServer:
             logger.info(f"WebSocket服务器启动于 {self.http_host}:{self.ws_port}")
 
             # 加载SSL证书用于WebSocket服务器（支持HTTPS/WSS）
-            from cert_utils import CertManager
+            from utils.cert_utils import CertManager
             cert_manager = CertManager()
 
             if not cert_manager.check_and_create_cert():

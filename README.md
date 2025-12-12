@@ -130,13 +130,8 @@ ws_port = int(os.getenv('WS_PORT', '9999'))      # WebSocket端口
 pip install pyinstaller==6.3.0
 
 # 打包PC客户端
-pyinstaller --clean --noconfirm --windowed --onefile \
-  --icon=static/icon.ico \
-  --add-data "templates;templates" \
-  --add-data "static;static" \
-  --name="H5BarcodeGun" \
-  pc_client_windows.py
 
+pyinstaller --add-data="utils/*;utils/" --add-data="static/*;static/" --add-data="templates/*;templates" --hidden-import="gevent" --hidden-import="geventwebsocket" --hidden-import="gevent.ssl" --hidden-import="gevent.builtins" --hidden-import="engineio.async_drivers.threading" --name H5BarcodeGun --icon='static/scan_icon.png' --noconsole pc_client_windows.py      
 # 打包后的文件在 dist/H5BarcodeGun.exe
 ```
 
@@ -180,7 +175,7 @@ pyinstaller --clean --noconfirm --windowed --onefile \
 - **后端**：Flask + Flask-SocketIO (Python 3.8+)
 - **前端**：HTML5 + JavaScript + html5-qrcode
 - **PC客户端**：PyQt5 (Windows)
-- **键盘模拟**：PyAutoGUI + Win32 API
+- **键盘模拟**：PyAutoGUI + Win32 API + pynput
 - **二维码**：qrcode + Pillow
 
 ## 许可证
