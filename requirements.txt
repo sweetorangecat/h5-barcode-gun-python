@@ -1,10 +1,24 @@
+# 核心Web框架
 Flask==2.3.3
 Flask-SocketIO==5.3.5
 python-socketio[client]==5.9.0
-eventlet==0.33.3
-PyAutoGUI==0.9.54
-pystray==0.9.0
-Pillow==10.0.1
-pyinstaller==5.13.2
 python-dotenv==1.0.0
+
+# 键盘模拟
+PyAutoGUI==0.9.54
+
+# 二维码生成
 qrcode==7.4.2
+Pillow==10.0.1
+
+# Windows GUI
+PyQt5==5.15.9
+
+# SSL证书生成
+cryptography==41.0.3
+
+# 打包工具（可选）
+pyinstaller==6.3.0
+
+# 其他工具
+pystray==0.9.0
