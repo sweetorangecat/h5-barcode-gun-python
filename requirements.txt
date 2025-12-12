@@ -6,6 +6,7 @@ python-dotenv==1.0.0
 
 # 键盘模拟
 PyAutoGUI==0.9.54
+pynput==1.7.6
 
 # 二维码生成
 qrcode==7.4.2

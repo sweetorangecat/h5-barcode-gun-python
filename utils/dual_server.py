@@ -91,7 +91,7 @@ class DualBarcodeGunServer:
         @self.app.route('/')
         def index():
             """手机端扫码页面"""
-            return render_template('scanner_new.html', ws_port=self.ws_port)
+            return render_template('scanner.html', ws_port=self.ws_port)
 
         @self.app.route('/api/status')
         def get_status():

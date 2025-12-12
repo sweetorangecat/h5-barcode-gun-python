@@ -226,12 +226,12 @@
         <div id="stats-panel" class="stats-panel">
             <div class="stats-title">扫码统计</div>
             <div class="stats-item">
-                <span>设置间隔:</span>
-                <span id="stats-interval">500ms</span>
-            </div>
-            <div class="stats-item">
                 <span>实际间隔:</span>
                 <span id="stats-actual-interval">-</span>
+            </div>
+            <div class="stats-item">
+                <span>设置间隔:</span>
+                <span id="stats-set-interval">-</span>
             </div>
             <div class="stats-item">
                 <span>忽略次数:</span>
@@ -278,7 +278,7 @@
         let cameraId = null;
         let wsPort = {{ ws_port }};
         let lastScanTime = 0;
-        let scanFrequency = 500; // 默认500ms
+        let scanFrequency; // 默认500ms
         let isScanning = false;
 
         // 获取当前页面的主机地址和协议
@@ -290,6 +290,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             // 显示WebSocket地址
             document.getElementById('ws-address').textContent = wsUrl;
+            document.getElementById('stats-set-interval').textContent = document.getElementById('scan-frequency').value
 
             // 自动连接WebSocket
             console.log('正在连接WebSocket:', wsUrl);
@@ -317,6 +318,7 @@
             if (savedFrequency) {
                 scanFrequency = parseInt(savedFrequency);
                 document.getElementById('scan-frequency').value = savedFrequency;
+                document.getElementById('stats-set-interval').textContent = scanFrequency
                 console.log('已加载保存的扫描频率:', scanFrequency);
             }
         });
@@ -383,6 +385,7 @@
         function updateScanFrequency() {
             const frequencySelect = document.getElementById('scan-frequency');
             scanFrequency = parseInt(frequencySelect.value);
+            document.getElementById('stats-set-interval').textContent = scanFrequency;
 
             // 保存到localStorage
             localStorage.setItem('scanFrequency', scanFrequency);
@@ -506,12 +509,16 @@
 
         function onScanSuccess(decodedText, decodedResult) {
             const currentTime = Date.now();
-            const timeSinceLastScan = currentTime - lastScanTime;
+            const timeSinceLastScan = currentTime - lastScanTime
 
             // 检查是否达到扫描间隔时间
             if (timeSinceLastScan < scanFrequency) {
                 // 未达到间隔时间，忽略此次扫描
                 return;
+            }
+            //不是第一次扫描的话，展示实际扫描间隔
+            if (timeSinceLastScan !== currentTime){
+                document.getElementById('stats-actual-interval').textContent = timeSinceLastScan
             }
 
             // 更新最后扫描时间

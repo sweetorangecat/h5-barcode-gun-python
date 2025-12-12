@@ -181,6 +181,7 @@ class PCClientWindow(QMainWindow):
         self.show()
         self.log("H5 扫码枪客户端已启动", "info")
         self.log("请点击\"启动服务器\"按钮开始\n", "info")
+        self.log("请记得切换英文输入法，否则扫码后自动回车效果无效！！！", "warning")
 
     def init_ui(self):
         """初始化UI"""
@@ -383,7 +384,7 @@ class PCClientWindow(QMainWindow):
         self.stop_server_action.setEnabled(True)
 
         # 启动HTTPS服务器
-        self.log("正在生成SSL证书（如果需要）...", "info")
+        self.log("正在生成SSL证书...", "info")
         try:
             # 直接调用服务器启动
             if self.server_thread.running:
@@ -500,17 +501,11 @@ class PCClientWindow(QMainWindow):
             self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
             self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
 
-    @pyqtSlot(str)
-    def on_qr_detected(self, barcode):
-        """接收到二维码"""
-        if barcode is not None:
-            self.lbl_last_barcode.setText(barcode)
 
     @pyqtSlot(str)
     def on_barcode_received(self, barcode):
         """从服务器接收到条码数据"""
         self.log(f"收到条码: {barcode}", "success")
-        self.lbl_last_barcode.setText(barcode)
 
     def on_tray_icon_activated(self, reason):
         """托盘图标点击"""
