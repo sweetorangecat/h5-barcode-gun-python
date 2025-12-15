@@ -50,7 +50,7 @@ PyQt5] -->|控制| B
 ```
 h5-barcode-gun-python/
 ├── ╭── 页面模板 (templates/)
-│   │   └── index.html┃    扫码页面
+│   │   └── scanner.html┃    扫码页面
 │   │
 ├── ╭── 静态资源 (static/)
 │   │   ├─ scan_icon.png┃      应用图标
@@ -287,12 +287,12 @@ pip install --upgrade Pillow
 ### 🛠️ 端口被占用
 
 ```bash
-# 使用端口检查工具
-python check_ports.py
-
-# 或手动检查
+#手动检查
 netstat -ano | findstr "5100"
 netstat -ano | findstr "9999"
+
+#结束进程
+taskkill /f /t /im "PID号"
 ```
 
 ## 技术栈

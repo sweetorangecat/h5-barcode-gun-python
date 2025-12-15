@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 H5 Barcode Gun - Windows PC客户端
-图形界面版本，Start/Stop管理服务器
+图形界面
 """
 
 import sys
