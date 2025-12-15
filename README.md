@@ -63,9 +63,7 @@ h5-barcode-gun-python/
 │   │   └── keyboard_simulator.py    # 键盘模拟输入
 │   │
 ├── pc_client_windows.py     # Windows PC客户端(PyQt5)
-├── requirements.txt         # 依赖包列表
-├── .env.example            # 环境变量示例
-└── .env                    # 环境变量配置
+└── requirements.txt         # 依赖包列表
 ```
 
 ## 使用条件
