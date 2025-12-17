@@ -35,13 +35,12 @@ import os
 os.environ['FLASK_ENV'] = 'development'
 
 
-class DualBarcodeGunServer:
-    """扫码枪双端口服务器类"""
+class BarcodeGunServer:
+    """HTTPS扫码枪服务器类（单端口）"""
 
-    def __init__(self, http_host='0.0.0.0', http_port=5100, ws_port=9999, barcode_callback=None):
-        self.http_host = http_host
-        self.http_port = http_port
-        self.ws_port = ws_port
+    def __init__(self, host='0.0.0.0', port=5100, barcode_callback=None):
+        self.host = host
+        self.port = port
         self.barcode_callback = barcode_callback  # 用于通知PC客户端的回调函数
 
         # 创建Flask应用
@@ -55,7 +54,7 @@ class DualBarcodeGunServer:
                         static_folder=static_folder)
         self.app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'h5-barcode-gun-secret')
 
-        # 配置SocketIO绑定到ws_port
+        # 配置SocketIO - WebSocket通过HTTP端口升级，不需要独立端口
         # 注意：不使用eventlet，使用threading模式避免卡死
         self.socketio = SocketIO(
             self.app,
@@ -65,7 +64,7 @@ class DualBarcodeGunServer:
             async_mode='threading',  # 使用threading替代eventlet，更稳定
             ping_timeout=60,
             ping_interval=30,
-            async_handlers=True# 异步处理handler
+            async_handlers=True  # 异步处理handler
         )
 
         # 存储连接的客户端
@@ -91,7 +90,7 @@ class DualBarcodeGunServer:
         @self.app.route('/')
         def index():
             """手机端扫码页面"""
-            return render_template('scanner.html', ws_port=self.ws_port)
+            return render_template('scanner.html')
 
         @self.app.route('/api/status')
         def get_status():
@@ -208,9 +207,8 @@ class DualBarcodeGunServer:
         """获取服务器信息"""
         return {
             'running': self.running,
-            'host': self.http_host,
-            'http_port': self.http_port,
-            'ws_port': self.ws_port,
+            'host': self.host,
+            'port': self.port,
             'ip': self.get_local_ip(),
             'mobile_clients': len(self.mobile_clients),
             'total_connections': len(self.mobile_clients),
@@ -224,11 +222,16 @@ class DualBarcodeGunServer:
         logger.info(f"接收到信号 {signum}，正在关闭服务器...")
         self.stop()
 
-    def start_http_server(self):
-        """在后台线程运行HTTP服务器"""
-        try:
-            logger.info(f"HTTPS服务器启动于 {self.http_host}:{self.http_port}")
+    def start(self):
+        """启动HTTPS服务器（包含HTTP和WebSocket）"""
+        if self.running:
+            logger.warning("服务器已在运行")
+            return
 
+        self.running = True
+        logger.info("正在启动HTTPS服务器...")
+
+        try:
             # 加载SSL证书
             from utils.cert_utils import CertManager
             cert_manager = CertManager()
@@ -242,78 +245,27 @@ class DualBarcodeGunServer:
                 logger.error("无法创建SSL上下文")
                 return
 
-            self.app.run(
-                host=self.http_host,
-                port=self.http_port,
-                debug=False,
-                use_reloader=False,
-                threaded=True,
-                ssl_context=ssl_context
-            )
-        except Exception as e:
-            logger.error(f"HTTP服务器运行出错: {e}", exc_info=True)
+            logger.info(f"HTTPS/WSS服务器启动于 {self.host}:{self.port}")
 
-    def start_ws_server(self):
-        """在后台线程运行WebSocket服务器"""
-        try:
-            logger.info(f"WebSocket服务器启动于 {self.http_host}:{self.ws_port}")
-
-            # 加载SSL证书用于WebSocket服务器（支持HTTPS/WSS）
-            from utils.cert_utils import CertManager
-            cert_manager = CertManager()
-
-            if not cert_manager.check_and_create_cert():
-                logger.error("SSL证书生成失败，无法启动WSS")
-                return
-
-            ssl_context = cert_manager.get_ssl_context()
-            if not ssl_context:
-                logger.error("无法创建SSL上下文")
-                return
-
-            # 注意：socketio.run()接受ssl_context参数
+            # 启动Flask + SocketIO服务器（WebSocket通过HTTP端口自动升级）
+            # 注意：必须在主线程中运行，使用socketio.run()而不是app.run()
             self.socketio.run(
                 self.app,
-                host=self.http_host,
-                port=self.ws_port,
+                host=self.host,
+                port=self.port,
                 debug=False,
                 use_reloader=False,
-                log_output=True,
-                ssl_context=ssl_context,  # 使用ssl_context参数
+                log_output=False,  # 关闭日志输出避免性能问题
+                ssl_context=ssl_context,
                 allow_unsafe_werkzeug=True  # 允许在threading模式下使用Werkzeug
             )
+
         except Exception as e:
-            logger.error(f"WebSocket服务器运行出错: {e}", exc_info=True)
+            logger.error(f"服务器运行出错: {e}", exc_info=True)
+            self.running = False
 
-    def start(self):
-        """启动服务器"""
-        if self.running:
-            logger.warning("服务器已在运行")
-            return
-
-        self.running = True
-        logger.info("正在启动双端口服务器...")
-
-        # 启动HTTP服务器线程（非守护线程）
-        self.http_thread = threading.Thread(target=self.start_http_server, daemon=True)
-        self.http_thread.start()
-
-        # 等待一下确保HTTP服务器启动
-        time.sleep(0.5)
-
-        # 启动WebSocket服务器线程（非守护线程）
-        self.ws_thread = threading.Thread(target=self.start_ws_server, daemon=True)
-        self.ws_thread.start()
-
-        logger.info("双端口服务器启动完成")
-
-    def stop(self, wait=False):
-        """
-        停止服务器（避免使用可能导致死锁的方法）
-
-        Args:
-            wait: 是否等待线程关闭（默认False，立即终止）
-        """
+    def stop(self):
+        """停止HTTPS服务器"""
         if not self.running:
             logger.warning("服务器未在运行")
             return
@@ -322,50 +274,33 @@ class DualBarcodeGunServer:
         self.running = False
 
         try:
-            # 1. 清空客户端列表，断开连接
+            # 清空客户端列表
             logger.debug("清空客户端列表...")
             self.mobile_clients.clear()
 
-            # 2. 停止定时器
-            if hasattr(self, 'timer') and self.timer:
-                try:
-                    logger.debug("停止定时器...")
-                    self.timer.stop()
-                except:
-                    pass
-
-            # 3. 不要使用socketio.stop()，它可能导致死锁
-            # 而是直接标记running=False，让线程自己退出
-            # logger.debug("标记服务器为停止状态，让线程自行退出...")
-
+            # 强制退出进程
             logger.info("服务器已停止（立即强制退出）")
-
-            # 4. 立即强制退出进程，不等待
-            if not wait:
-                logger.info("立即强制退出进程...")
-                os._exit(0)
+            os._exit(0)
         except Exception as e:
             os._exit(0)
 
 def main():
     """主函数"""
     # 使用环境变量或默认值
-    http_port = int(os.getenv('HTTP_PORT', '5100'))
-    ws_port = int(os.getenv('WS_PORT', '9999'))
+    port = int(os.getenv('PORT', '5100'))
     host = os.getenv('HOST', '0.0.0.0')
 
-    server = DualBarcodeGunServer(http_host=host, http_port=http_port, ws_port=ws_port)
+    server = BarcodeGunServer(host=host, port=port)
 
     # 启动服务器
     server.start()
 
     logger.info("=" * 60)
-    logger.info("H5扫码枪 - 双端口服务器已启动")
+    logger.info("H5扫码枪 - HTTPS服务器已启动")
     logger.info("=" * 60)
-    logger.info(f"HTTP服务器: http://{server.get_local_ip()}:{http_port}")
-    logger.info(f"WebSocket服务器: ws://{server.get_local_ip()}:{ws_port}")
+    logger.info(f"服务器地址: https://{server.get_local_ip()}:{port}")
     logger.info("=" * 60)
-    logger.info("手机访问HTTP地址即可扫码")
+    logger.info("手机访问HTTPS地址即可扫码")
     logger.info("=" * 60)
 
     try:

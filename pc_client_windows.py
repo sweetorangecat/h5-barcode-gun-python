@@ -56,7 +56,7 @@ import qrcode
 project_dir = Path(__file__).parent
 sys.path.insert(0, str(project_dir))
 
-from utils.dual_server import DualBarcodeGunServer
+from utils.dual_server import BarcodeGunServer
 
 # 配置日志
 logging.basicConfig(
@@ -74,7 +74,7 @@ class ServerThread(QObject):
     """服务器线程，管理服务器生命周期"""
 
     # 定义信号
-    server_started = pyqtSignal(str, int, str)  # host, port, protocol
+    server_started = pyqtSignal(str, int)  # host, port
     server_stopped = pyqtSignal()
     status_update = pyqtSignal(dict)
     log_message = pyqtSignal(str, str)
@@ -85,7 +85,6 @@ class ServerThread(QObject):
         self.server = None
         self.running = False
         self.server_thread = None
-
 
     def _run_server(self):
         """在后台线程运行服务器"""
@@ -98,31 +97,21 @@ class ServerThread(QObject):
 
     @pyqtSlot()
     def stop_server(self):
-        """停止服务器（安全终止）"""
+        """停止服务器"""
         if not self.running:
             self.log_message.emit("服务器未在运行", "warning")
             return
 
         try:
-            self.log_message.emit("正在安全地停止服务器...", "info")
+            self.log_message.emit("正在停止服务器...", "info")
             self.running = False
 
-            # 停止定时器
-            if hasattr(self, 'timer') and self.timer:
-                try:
-                    logger.debug("停止定时器...")
-                    self.timer.stop()
-                except:
-                    pass
-
-            # 停止服务器（不立即终止，避免卡死）
+            # 停止服务器
             if self.server:
-                logger.debug("调用服务器stop方法...")
-                # 调用stop时等待，避免立即终止导致卡死
-                self.server.stop(wait=True)
+                self.server.stop()
 
             self.server_stopped.emit()
-            self.log_message.emit("服务器已安全停止", "success")
+            self.log_message.emit("服务器已停止", "success")
 
         except Exception as e:
             logger.error(f"停止服务器失败: {e}")
@@ -139,14 +128,6 @@ class ServerThread(QObject):
             self.status_update.emit(info)
         except Exception as e:
             logger.debug(f"更新状态失败: {e}")
-
-    def _run_https_server(self, ssl_context):
-        """在后台线程运行HTTPS服务器"""
-        try:
-            self.server.start(ssl_context=ssl_context)
-        except Exception as e:
-            logger.error(f"HTTPS服务器运行出错: {e}")
-            self.log_message.emit(f"服务器运行出错: {e}", "error")
 
 
 class PCClientWindow(QMainWindow):
@@ -194,24 +175,13 @@ class PCClientWindow(QMainWindow):
         port_group = QGroupBox("端口设置")
         port_layout = QVBoxLayout()
 
-        # HTTP端口
-        http_port_layout = QHBoxLayout()
-        http_port_layout.addWidget(QLabel("HTTP端口:"))
+        # HTTPS端口
+        port_layout.addWidget(QLabel("服务器端口:"))
         from PyQt5.QtWidgets import QSpinBox
-        self.http_port_spin = QSpinBox()
-        self.http_port_spin.setRange(1000, 65535)
-        self.http_port_spin.setValue(5100)
-        http_port_layout.addWidget(self.http_port_spin)
-        port_layout.addLayout(http_port_layout)
-
-        # WebSocket端口
-        ws_port_layout = QHBoxLayout()
-        ws_port_layout.addWidget(QLabel("WS端口:"))
-        self.ws_port_spin = QSpinBox()
-        self.ws_port_spin.setRange(1000, 65535)
-        self.ws_port_spin.setValue(9999)
-        ws_port_layout.addWidget(self.ws_port_spin)
-        port_layout.addLayout(ws_port_layout)
+        self.port_spin = QSpinBox()
+        self.port_spin.setRange(1000, 65535)
+        self.port_spin.setValue(5100)
+        port_layout.addWidget(self.port_spin)
 
         port_group.setLayout(port_layout)
         left_layout.addWidget(port_group)
@@ -221,7 +191,7 @@ class PCClientWindow(QMainWindow):
         server_layout = QVBoxLayout()
 
         # 启动/停止服务器按钮
-        self.btn_start_server = QPushButton("▶ 启动双端口服务器")
+        self.btn_start_server = QPushButton("▶ 启动HTTPS服务器")
         self.btn_start_server.clicked.connect(self.on_start_server_clicked)
 
         self.btn_stop_server = QPushButton("⏹ 停止服务器")
@@ -239,8 +209,8 @@ class PCClientWindow(QMainWindow):
         server_layout.addWidget(self.lbl_server_status)
 
         # HTTP地址显示
-        self.lbl_http_url = QLabel("HTTP地址: -")
-        server_layout.addWidget(self.lbl_http_url)
+        self.lbl_server_url = QLabel("HTTP地址: -")
+        server_layout.addWidget(self.lbl_server_url)
 
         # WebSocket地址显示
         self.lbl_ws_url = QLabel("WebSocket地址: -")
@@ -265,7 +235,7 @@ class PCClientWindow(QMainWindow):
         self.lbl_qr_code.setText("启动服务器后\n显示二维码")
         qr_layout.addWidget(self.lbl_qr_code)
 
-        # HTTP地址显示在二维码下方
+        # 服务器地址显示在二维码下方
         self.lbl_http_url_simple = QLabel("-")
         self.lbl_http_url_simple.setAlignment(Qt.AlignCenter)
         self.lbl_http_url_simple.setWordWrap(True)
@@ -405,14 +375,12 @@ class PCClientWindow(QMainWindow):
             if not ssl_context:
                 raise Exception("无法创建SSL上下文")
 
-            self.log("正在启动HTTPS服务器...", "info")
-            # 创建双端口服务器实例
-            http_port = self.http_port_spin.value()
-            ws_port = self.ws_port_spin.value()
-            self.server_thread.server = DualBarcodeGunServer(
-                http_host='0.0.0.0',
-                http_port=http_port,
-                ws_port=ws_port,
+            self.log("正在启动服务器...", "info")
+            # 创建服务器实例
+            port = self.port_spin.value()
+            self.server_thread.server = BarcodeGunServer(
+                host='0.0.0.0',
+                port=port,
                 barcode_callback=self.on_barcode_received
             )
             self.server_thread.running = True
@@ -431,8 +399,8 @@ class PCClientWindow(QMainWindow):
             self.server_thread.server_thread.start()
 
             # 触发信号
-            self.on_server_started('0.0.0.0', http_port, 'https')
-            self.log(f"HTTPS服务器启动成功 (HTTP端口: {http_port}, WebSocket端口: {ws_port})", "success")
+            self.on_server_started('0.0.0.0', port)
+            self.log(f"HTTPS服务器启动成功 (端口: {port})", "success")
 
         except Exception as e:
             self.log(f"启动服务器失败: {e}", "error")
@@ -448,28 +416,27 @@ class PCClientWindow(QMainWindow):
         """点击停止服务器按钮"""
         self.server_thread.stop_server()
 
-    @pyqtSlot(str, int, str)
-    def on_server_started(self, host, port, protocol):
+    @pyqtSlot(str, int)
+    def on_server_started(self, host, port):
         """服务器已启动"""
 
         self.server_running = True
         self.lbl_server_status.setText("服务器状态: <span style='color: green;'>运行中</span>")
         info = self.server_thread.server.get_server_info()
         local_ip = info.get('ip', 'localhost')
-        http_port = info.get('http_port', 5100)
-        ws_port = info.get('ws_port', 9999)
+        port = info.get('port', 5100)
 
-        # 构建HTTP地址
-        http_url = f"https://{local_ip}:{http_port}"
+        # 构建服务器地址
+        server_url = f"https://{local_ip}:{port}"
 
-        self.lbl_http_url.setText(f"手机H5地址: {http_url}")
-        self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
+        self.lbl_server_url.setText(f"{server_url}")
+        self.lbl_ws_url.setText(f"WebSocket地址: wss://{local_ip}:{port}")
         self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
         self.status_bar.showMessage("服务器运行中")
-        self.log(f"服务器启动成功 - HTTPS: {local_ip}:{http_port}, WebSocket: {ws_port}", 'success')
+        self.log(f"服务器启动成功 - HTTPS: {local_ip}:{port}", 'success')
 
         # 生成并显示二维码
-        self.generate_qr_code(http_url)
+        self.generate_qr_code(server_url)
 
         # # 自动连接客户端
 
@@ -482,8 +449,8 @@ class PCClientWindow(QMainWindow):
         self.start_server_action.setEnabled(True)
         self.stop_server_action.setEnabled(False)
         self.lbl_server_status.setText("服务器状态: <span style='color: red;'>已停止</span>")
-        self.lbl_http_url.setText("HTTP地址: -")
-        self.lbl_ws_url.setText("WS地址: -")
+        self.lbl_server_url.setText("HTTP地址: -")
+        self.lbl_ws_url.setText("WebSocket地址：-")
         self.lbl_mobile_clients.setText("H5连接数: 0")
         self.status_bar.showMessage("服务器已停止")
         self.log("服务器已停止", 'warning')
@@ -495,10 +462,9 @@ class PCClientWindow(QMainWindow):
         """接收状态更新"""
         if info.get('running'):
             local_ip = info.get('ip', 'localhost')
-            http_port = info.get('http_port', 5100)
-            ws_port = info.get('ws_port', 9999)
-            self.lbl_http_url.setText(f"HTTP地址: https://{local_ip}:{http_port}")
-            self.lbl_ws_url.setText(f"WebSocket地址: ws://{local_ip}:{ws_port}")
+            port = info.get('port', 5100)
+            self.lbl_server_url.setText(f"HTTP地址：https://{local_ip}:{port}")
+            self.lbl_ws_url.setText(f"WebSocket地址: wss://{local_ip}:{port}")
             self.lbl_mobile_clients.setText(f"H5连接数: {info.get('mobile_clients', 0)}")
 
 

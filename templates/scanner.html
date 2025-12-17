@@ -216,8 +216,7 @@
                 <span id="status-text">未连接</span>
             </div>
             <div class="ws-info">
-                <div>WS: <span id="ws-address">-</span></div>
-                <div>H5: <span id="mobile-count">0</span></div>
+                <div>WebSocket: <span id="ws-address">-</span></div>
             </div>
         </div>
 
@@ -276,7 +275,6 @@
         let html5QrCode = null;
         let isConnected = false;
         let cameraId = null;
-        let wsPort = {{ ws_port }};
         let lastScanTime = 0;
         let scanFrequency; // 默认500ms
         let isScanning = false;
@@ -284,7 +282,8 @@
         // 获取当前页面的主机地址和协议
         const host = window.location.hostname;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${host}:${wsPort}`;
+        const port = window.location.port;
+        const wsUrl = `${protocol}//${host}:${port}`;
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -509,7 +508,7 @@
 
         function onScanSuccess(decodedText, decodedResult) {
             const currentTime = Date.now();
-            const timeSinceLastScan = currentTime - lastScanTime
+            const timeSinceLastScan = currentTime - lastScanTime;
 
             // 检查是否达到扫描间隔时间
             if (timeSinceLastScan < scanFrequency) {
@@ -518,7 +517,7 @@
             }
             //不是第一次扫描的话，展示实际扫描间隔
             if (timeSinceLastScan !== currentTime){
-                document.getElementById('stats-actual-interval').textContent = timeSinceLastScan
+                document.getElementById('stats-actual-interval').textContent = timeSinceLastScan + 'ms';
             }
 
             // 更新最后扫描时间
@@ -534,6 +533,9 @@
                     timestamp: new Date().toISOString(),
                     interval: timeSinceLastScan
                 });
+            } else {
+                console.warn('WebSocket未连接，无法发送扫码结果');
+                showError('WebSocket未连接，请检查网络');
             }
         }
 
